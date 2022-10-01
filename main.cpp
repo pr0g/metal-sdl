@@ -19,7 +19,6 @@ int main(int argc, char** argv)
 
   const int width = 1024;
   const int height = 768;
-  const float aspect = float(width) / float(height);
   SDL_Window* window = SDL_CreateWindow(
     argv[0], SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, width, height,
     SDL_WINDOW_SHOWN | SDL_WINDOW_METAL);
@@ -36,22 +35,11 @@ int main(int argc, char** argv)
     return 1;
   }
 
-  // MTL::Device* device = MTLCreateSystemDefaultDevice();
-  // CA::MetalLayer* metal_layer =
-  // (CA::MetalLayer*)SDL_Metal_GetLayer(metal_view);
-
-  // MTL::Device* device = metal_layer->device();
-  SDL_Renderer* renderer =
+  [[maybe_unused]] SDL_Renderer* renderer =
     SDL_CreateRenderer(window, -1, SDL_RENDERER_PRESENTVSYNC);
 
-  // auto metal_layer = (CA::MetalLayer*)SDL_RenderGetMetalLayer(renderer);
   auto metal_layer = (CA::MetalLayer*)SDL_Metal_GetLayer(metal_view);
-  // auto device = ml->device();
   MTL::Device* device = metal_layer->device();
-
-  // if (metal_layer == ml) {
-  //   std::cout << "same\n";
-  // }
 
   auto name = device->name();
   std::cerr << "device name: " << name->utf8String() << std::endl;
@@ -89,11 +77,6 @@ int main(int argc, char** argv)
 
     pool->release();
   }
-
-  // dummy
-  // int data;
-  // auto library_data =
-  //   dispatch_data_create(&data, 4, dispatch_get_main_queue(), {});
 
   command_queue->release();
   device->release();
