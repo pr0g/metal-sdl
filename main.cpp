@@ -12,12 +12,6 @@
 
 #include "vertex.h"
 
-static const vertex_pos_col_t g_triangle_vertices[] = {
-  {{-0.8f, -0.8f, 0.0f}, {1.0f, 0.0f, 0.0f, 1.0f}},
-  {{0.8f, -0.8f, 0.0f}, {0.0f, 1.0f, 0.0f, 1.0f}},
-  {{0.0f, 0.8f, 0.0f}, {0.0f, 0.0f, 1.0f, 1.0f}},
-};
-
 int main(int argc, char** argv)
 {
   if (SDL_Init(SDL_INIT_VIDEO) < 0) {
@@ -47,6 +41,7 @@ int main(int argc, char** argv)
     SDL_CreateRenderer(window, -1, SDL_RENDERER_PRESENTVSYNC);
 
   auto metal_layer = (CA::MetalLayer*)SDL_Metal_GetLayer(metal_view);
+  metal_layer->setPixelFormat(MTL::PixelFormat::PixelFormatBGRA8Unorm);
   MTL::Device* device = metal_layer->device();
 
   auto name = device->name();
@@ -94,7 +89,7 @@ int main(int argc, char** argv)
   pipeline_descriptor->setVertexFunction(vert_fn);
   pipeline_descriptor->setFragmentFunction(frag_fn);
   pipeline_descriptor->colorAttachments()->object(0)->setPixelFormat(
-    MTL::PixelFormat::PixelFormatBGRA8Unorm_sRGB);
+    MTL::PixelFormat::PixelFormatBGRA8Unorm);
 
   MTL::RenderPipelineState* render_pipeline_state =
     device->newRenderPipelineState(pipeline_descriptor, &error);
@@ -107,6 +102,20 @@ int main(int argc, char** argv)
   frag_fn->release();
   pipeline_descriptor->release();
   library->release();
+
+  const vertex_pos_col_t triangle_vertices[] = {
+    {{-0.8f, -0.8f, 0.0f}, {1.0f, 0.0f, 0.0f, 1.0f}},
+    {{0.8f, -0.8f, 0.0f}, {0.0f, 1.0f, 0.0f, 1.0f}},
+    {{0.0f, 0.8f, 0.0f}, {0.0f, 0.0f, 1.0f, 1.0f}},
+  };
+
+  MTL::Buffer* vert_pos_col_buffer = device->newBuffer(
+    sizeof(triangle_vertices), MTL::ResourceStorageModeManaged);
+  memcpy(
+    vert_pos_col_buffer->contents(), triangle_vertices,
+    sizeof(triangle_vertices));
+  vert_pos_col_buffer->didModifyRange(
+    NS::Range::Make(0, vert_pos_col_buffer->length()));
 
   MTL::CommandQueue* command_queue = device->newCommandQueue();
 
@@ -139,9 +148,7 @@ int main(int argc, char** argv)
       command_encoder->setRenderPipelineState(render_pipeline_state);
       command_encoder->setViewport(
         MTL::Viewport{0, 0, width, height, 0.0, 1.0});
-      command_encoder->setVertexBytes(
-        g_triangle_vertices, sizeof(g_triangle_vertices),
-        vertex_input_index_vertices);
+      command_encoder->setVertexBuffer(vert_pos_col_buffer, 0, 0);
       command_encoder->drawPrimitives(
         MTL::PrimitiveType::PrimitiveTypeTriangle, NS::UInteger(0),
         NS::UInteger(3));
