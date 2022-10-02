@@ -148,7 +148,8 @@ int main(int argc, char** argv)
       command_encoder->setRenderPipelineState(render_pipeline_state);
       command_encoder->setViewport(
         MTL::Viewport{0, 0, width, height, 0.0, 1.0});
-      command_encoder->setVertexBuffer(vert_pos_col_buffer, 0, 0);
+      command_encoder->setVertexBuffer(
+        vert_pos_col_buffer, 0, vertex_input_index_vertices);
       command_encoder->drawPrimitives(
         MTL::PrimitiveType::PrimitiveTypeTriangle, NS::UInteger(0),
         NS::UInteger(3));
