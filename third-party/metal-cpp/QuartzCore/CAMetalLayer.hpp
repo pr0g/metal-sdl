@@ -16,6 +16,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //
+// Modifications Notice
+//
+// 2022/10/02 - Added 'void setPixelFormat(MTL::PixelFormat pixelFormat);'
 //-------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 #pragma once
@@ -37,6 +40,7 @@ public:
     MTL::Device*      device() const;
     class MetalDrawable*    nextDrawable() const;
     MTL::PixelFormat pixelFormat() const;
+    void setPixelFormat(MTL::PixelFormat pixelFormat);
 };
 }
 
@@ -55,6 +59,11 @@ _CA_INLINE CA::MetalDrawable* CA::MetalLayer::nextDrawable() const
 _CA_INLINE MTL::PixelFormat CA::MetalLayer::pixelFormat() const
 {
     return Object::sendMessage<MTL::PixelFormat>(this, _CA_PRIVATE_SEL(pixelFormat));
+}
+
+_MTL_INLINE void CA::MetalLayer::setPixelFormat(MTL::PixelFormat pixelFormat)
+{
+    Object::sendMessage<void>(this, _MTL_PRIVATE_SEL(setPixelFormat_), pixelFormat);
 }
 
 //-------------------------------------------------------------------------------------------------------------------------------------------------------------

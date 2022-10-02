@@ -17,16 +17,18 @@
 // limitations under the License.
 //
 // Modifications Notice
-// 
+//
 // 2022/10/01 - Added '_CA_PRIVATE_DEF_PRO(CAMetalLayer);'
 //            - Added '_CA_PRIVATE_DEF_SEL(device,
 //                         "device");
 //                     _CA_PRIVATE_DEF_SEL(nextDrawable,
 //                         "nextDrawable");
 //                     _CA_PRIVATE_DEF_SEL(pixelFormat,
-//                         "pixelFormat");
+//                         "pixelFormat");'
 // Changes from github.com/gzorin/sdl-metal-cpp-example by Alex Betts (gzorin))
 //
+// 2022/10/02 - Added '_CA_PRIVATE_DEF_SEL(setPixelFormat_,
+//                         "setPixelFormat:");'
 //-------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 #pragma once
@@ -119,6 +121,8 @@ namespace Private
             "nextDrawable");
         _CA_PRIVATE_DEF_SEL(pixelFormat,
             "pixelFormat");
+        _CA_PRIVATE_DEF_SEL(setPixelFormat_,
+            "setPixelFormat:");
 
     } // Class
 } // Private
