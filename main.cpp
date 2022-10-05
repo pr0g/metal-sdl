@@ -56,12 +56,16 @@ int main(int argc, char** argv)
           float4 color;
         };
 
+        struct VertexData {
+            device vertex_pos_col_t* pos_col [[id(0)]];
+        };
+
         vertex rasterizer_data_t vertex_shader(
           uint vertex_id [[vertex_id]],
-          constant vertex_pos_col_t* vertices [[buffer(vertex_input_index_vertices)]]) {
+          constant VertexData* vertices [[buffer(0)]]) {
             rasterizer_data_t out;
-            out.position = float4(vertices[vertex_id].position.xy, 0.0, 1.0);
-            out.color = vertices[vertex_id].color;
+            out.position = float4(vertices->pos_col[vertex_id].position.xy, 0.0, 1.0);
+            out.color = vertices->pos_col[vertex_id].color;
             return out;
         }
 
@@ -98,8 +102,6 @@ int main(int argc, char** argv)
     return 1;
   }
 
-  vert_fn->release();
-  frag_fn->release();
   pipeline_descriptor->release();
   library->release();
 
@@ -116,6 +118,17 @@ int main(int argc, char** argv)
     sizeof(triangle_vertices));
   vert_pos_col_buffer->didModifyRange(
     NS::Range::Make(0, vert_pos_col_buffer->length()));
+
+  MTL::ArgumentEncoder* arg_encoder = vert_fn->newArgumentEncoder(0);
+  MTL::Buffer* arg_buffer = device->newBuffer(
+    arg_encoder->encodedLength(), MTL::ResourceStorageModeManaged);
+  arg_encoder->setArgumentBuffer(arg_buffer, 0);
+  arg_encoder->setBuffer(vert_pos_col_buffer, 0, 0);
+  arg_buffer->didModifyRange(NS::Range(0, arg_buffer->length()));
+
+  vert_fn->release();
+  frag_fn->release();
+  arg_encoder->release();
 
   MTL::CommandQueue* command_queue = device->newCommandQueue();
 
@@ -148,8 +161,8 @@ int main(int argc, char** argv)
       command_encoder->setRenderPipelineState(render_pipeline_state);
       command_encoder->setViewport(
         MTL::Viewport{0, 0, width, height, 0.0, 1.0});
-      command_encoder->setVertexBuffer(
-        vert_pos_col_buffer, 0, vertex_input_index_vertices);
+      command_encoder->setVertexBuffer(arg_buffer, 0, 0);
+      command_encoder->useResource(vert_pos_col_buffer, MTL::ResourceUsageRead);
       command_encoder->drawPrimitives(
         MTL::PrimitiveType::PrimitiveTypeTriangle, NS::UInteger(0),
         NS::UInteger(3));
