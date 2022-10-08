@@ -241,6 +241,11 @@ int main(int argc, char** argv)
     pool->release();
   }
 
+  arg_buffer->release();
+  vert_pos_col_buffer->release();
+  for (int i = 0; i < MaxFramesInFlight; ++i) {
+    frame_data_buffers[i]->release();
+  }
   command_queue->release();
   device->release();
 
