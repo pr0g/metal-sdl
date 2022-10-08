@@ -12,7 +12,12 @@ struct vertex_pos_col_t
 
 struct frame_data_t
 {
-  simd::float4x4 mvp;
+  simd::float4x4 view_projection;
+};
+
+struct instance_data_t
+{
+  simd::float4x4 model;
 };
 
 #endif // METAL_VERTEX_H

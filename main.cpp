@@ -72,11 +72,15 @@ int main(int argc, char** argv)
         };
 
         vertex rasterizer_data_t vertex_shader(
-          uint vertex_id [[vertex_id]],
           constant VertexData* vertices [[buffer(0)]],
-          constant frame_data_t* frame_data [[buffer(1)]]) {
+          constant frame_data_t* frame_data [[buffer(1)]],
+          constant instance_data_t* instance_data [[buffer(2)]],
+          uint vertex_id [[vertex_id]],
+          uint instance_id [[instance_id]]) {
             rasterizer_data_t out;
-            out.position = float4(vertices->pos_col[vertex_id].position.xy, 0.0, 1.0) * frame_data->mvp;
+            out.position = frame_data->view_projection
+              * instance_data[instance_id].model
+              * float4(vertices->pos_col[vertex_id].position.xy, 0.0, 1.0);
             out.color = vertices->pos_col[vertex_id].color;
             return out;
         }
@@ -117,13 +121,12 @@ int main(int argc, char** argv)
   pipeline_descriptor->release();
   library->release();
 
+  const uint16_t indices[] = {0, 1, 2, 0, 2, 3};
   const vertex_pos_col_t vertices[] = {
     {{-1.0f, -1.0f, 0.0f}, {1.0f, 0.0f, 0.0f, 1.0f}},
     {{1.0f, -1.0f, 0.0f}, {0.0f, 1.0f, 0.0f, 1.0f}},
     {{1.0f, 1.0f, 0.0f}, {0.0f, 0.0f, 1.0f, 1.0f}},
     {{-1.0f, 1.0f, 0.0f}, {1.0f, 1.0f, 0.0f, 1.0f}}};
-
-  const uint16_t indices[] = {0, 1, 2, 0, 2, 3};
 
   MTL::Buffer* vertex_buffer =
     device->newBuffer(sizeof(vertices), MTL::ResourceStorageModeManaged);
@@ -146,10 +149,21 @@ int main(int argc, char** argv)
   frag_fn->release();
   arg_encoder->release();
 
+  const int32_t MaxFramesInFlight = 3;
+  const int32_t InstanceCount = 4;
+
+  // instance data
+  const int32_t instance_data_size =
+    MaxFramesInFlight * InstanceCount * sizeof(instance_data_t);
+  MTL::Buffer* instance_data_buffers[MaxFramesInFlight] = {};
+  for (int i = 0; i < MaxFramesInFlight; ++i) {
+    instance_data_buffers[i] =
+      device->newBuffer(instance_data_size, MTL::ResourceStorageModeManaged);
+  }
+
   // uniform data
   int frame_index = 0;
-  MTL::Buffer* frame_data_buffers[3] = {};
-  const int32_t MaxFramesInFlight = 3;
+  MTL::Buffer* frame_data_buffers[MaxFramesInFlight] = {};
   for (int i = 0; i < MaxFramesInFlight; ++i) {
     frame_data_buffers[i] =
       device->newBuffer(sizeof(frame_data_t), MTL::ResourceStorageModeManaged);
@@ -158,7 +172,7 @@ int main(int argc, char** argv)
   dispatch_semaphore_t semaphore = dispatch_semaphore_create(MaxFramesInFlight);
 
   asc::Camera camera;
-  camera.pivot = as::vec3(0.0f, 0.0f, -4.0f);
+  camera.pivot = as::vec3(0.0f, 0.0f, -6.0f);
   const as::mat4 perspective_projection = as::perspective_d3d_lh(
     as::radians(60.0f), float(width) / float(height), 5.0f, 100.0f);
 
@@ -184,6 +198,7 @@ int main(int argc, char** argv)
 
     frame_index = (frame_index + 1) % MaxFramesInFlight;
     MTL::Buffer* frame_data_buffer = frame_data_buffers[frame_index];
+    MTL::Buffer* instance_data_buffer = instance_data_buffers[frame_index];
 
     if (CA::MetalDrawable* current_drawable = metal_layer->nextDrawable()) {
       MTL::CommandBuffer* command_buffer = command_queue->commandBuffer();
@@ -196,25 +211,30 @@ int main(int argc, char** argv)
 
       auto* frame_data =
         static_cast<frame_data_t*>(frame_data_buffer->contents());
-
       const as::mat4 view = as::mat4_from_affine(camera.view());
       const as::mat4 view_projection = perspective_projection * view;
-      frame_data->mvp = simd::float4x4{
-        simd::float4{
-          view_projection[0], view_projection[1], view_projection[2],
-          view_projection[3]},
-        simd::float4{
-          view_projection[4], view_projection[5], view_projection[6],
-          view_projection[7]},
-        simd::float4{
-          view_projection[8], view_projection[9], view_projection[10],
-          view_projection[11]},
-        simd::float4{
-          view_projection[12], view_projection[13], view_projection[14],
-          view_projection[15]}};
+      const auto& vp = view_projection;
 
+      // work around compatibility with as library
+      frame_data->view_projection = simd::float4x4{
+        simd::float4{vp[0], vp[4], vp[8], vp[12]},
+        simd::float4{vp[1], vp[5], vp[9], vp[13]},
+        simd::float4{vp[2], vp[6], vp[10], vp[14]},
+        simd::float4{vp[4], vp[7], vp[11], vp[15]}};
       frame_data_buffer->didModifyRange(
         NS::Range::Make(0, sizeof(frame_data_t)));
+
+      auto* instance_data =
+        static_cast<instance_data_t*>(instance_data_buffer->contents());
+      for (int64_t i = 0; i < InstanceCount; ++i) {
+        instance_data[i].model = simd::float4x4{
+          simd::float4{1.0f, 0.0f, 0.0f, 0.0f},
+          simd::float4{0.0f, 1.0f, 0.0f, 0.0f},
+          simd::float4{0.0f, 0.0f, 1.0f, 0.0f},
+          simd::float4{-3.3f + float(i) * 2.2f, 0.0f, 0.0f, 1.0f}};
+      }
+      instance_data_buffer->didModifyRange(
+        NS::Range::Make(0, instance_data_buffer->length()));
 
       MTL::RenderPassDescriptor* pass_descriptor =
         MTL::RenderPassDescriptor::renderPassDescriptor();
@@ -234,9 +254,11 @@ int main(int argc, char** argv)
       command_encoder->setVertexBuffer(arg_buffer, 0, 0);
       command_encoder->useResource(vertex_buffer, MTL::ResourceUsageRead);
       command_encoder->setVertexBuffer(frame_data_buffer, 0, 1);
+      command_encoder->setVertexBuffer(instance_data_buffer, 0, 2);
       command_encoder->drawIndexedPrimitives(
         MTL::PrimitiveType::PrimitiveTypeTriangle, NS::UInteger(6),
-        MTL::IndexType::IndexTypeUInt16, index_buffer, NS::UInteger(0));
+        MTL::IndexType::IndexTypeUInt16, index_buffer, NS::UInteger(0),
+        InstanceCount);
       command_encoder->endEncoding();
       command_buffer->presentDrawable(current_drawable);
       command_buffer->commit();
