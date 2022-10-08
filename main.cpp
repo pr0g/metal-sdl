@@ -183,6 +183,20 @@ int main(int argc, char** argv)
 
   depth_stencil_desc->release();
 
+  MTL::TextureDescriptor* depth_texture_desc =
+    MTL::TextureDescriptor::alloc()->init();
+  depth_texture_desc->setTextureType(MTL::TextureType2D);
+  depth_texture_desc->setPixelFormat(MTL::PixelFormat::PixelFormatDepth32Float);
+  depth_texture_desc->setWidth(width);
+  depth_texture_desc->setHeight(height);
+  depth_texture_desc->setStorageMode(MTL::StorageModeManaged);
+  depth_texture_desc->setUsage(
+    MTL::TextureUsageShaderRead | MTL::TextureUsageRenderTarget);
+
+  MTL::Texture* depth_texture = device->newTexture(depth_texture_desc);
+
+  depth_texture_desc->release();
+
   dispatch_semaphore_t semaphore = dispatch_semaphore_create(MaxFramesInFlight);
 
   asc::Camera camera;
@@ -263,10 +277,10 @@ int main(int argc, char** argv)
         MTL::ClearColor::Make(0.3922, 0.5843, 0.9294, 1.0));
       pass_descriptor->colorAttachments()->object(0)->setTexture(
         current_drawable->texture());
-      // need texture
-      // pass_descriptor->depthAttachment()->setClearDepth(0.0f);
-      // pass_descriptor->depthAttachment()->setLoadAction(MTL::LoadActionClear);
-      // pass_descriptor->depthAttachment()->setStoreAction(MTL::StoreActionStore);
+      pass_descriptor->depthAttachment()->setClearDepth(1.0f);
+      pass_descriptor->depthAttachment()->setLoadAction(MTL::LoadActionClear);
+      pass_descriptor->depthAttachment()->setStoreAction(MTL::StoreActionStore);
+      pass_descriptor->depthAttachment()->setTexture(depth_texture);
       MTL::RenderCommandEncoder* command_encoder =
         command_buffer->renderCommandEncoder(pass_descriptor);
       command_encoder->setRenderPipelineState(render_pipeline_state);
@@ -292,6 +306,7 @@ int main(int argc, char** argv)
     pool->release();
   }
 
+  depth_texture->release();
   arg_buffer->release();
   vertex_buffer->release();
   index_buffer->release();
