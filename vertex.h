@@ -10,6 +10,12 @@ struct vertex_pos_col_t
   simd::float4 color;
 };
 
+struct vertex_pos_tex_t
+{
+  simd::float2 position;
+  simd::float2 texcoord;
+};
+
 struct frame_data_t
 {
   simd::float4x4 view_projection;

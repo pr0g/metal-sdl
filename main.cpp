@@ -58,7 +58,49 @@ int main(int argc, char** argv)
   auto name = device->name();
   std::cerr << "device name: " << name->utf8String() << std::endl;
 
-  const char* shader_src = R"(
+  MTL::TextureDescriptor* render_target_texture_desc =
+    MTL::TextureDescriptor::alloc()->init();
+  render_target_texture_desc->setTextureType(MTL::TextureType2D);
+  render_target_texture_desc->setPixelFormat(
+    MTL::PixelFormat::PixelFormatBGRA8Unorm);
+  render_target_texture_desc->setWidth(width);
+  render_target_texture_desc->setHeight(height);
+  render_target_texture_desc->setUsage(
+    MTL::TextureUsageShaderRead | MTL::TextureUsageRenderTarget);
+  MTL::Texture* render_target_texture =
+    device->newTexture(render_target_texture_desc);
+  render_target_texture_desc->release();
+
+  MTL::TextureDescriptor* depth_texture_desc =
+    MTL::TextureDescriptor::alloc()->init();
+  depth_texture_desc->setTextureType(MTL::TextureType2D);
+  depth_texture_desc->setPixelFormat(MTL::PixelFormat::PixelFormatDepth32Float);
+  depth_texture_desc->setWidth(width);
+  depth_texture_desc->setHeight(height);
+  depth_texture_desc->setStorageMode(MTL::StorageModeManaged);
+  depth_texture_desc->setUsage(
+    MTL::TextureUsageShaderRead | MTL::TextureUsageRenderTarget);
+  MTL::Texture* depth_texture = device->newTexture(depth_texture_desc);
+  depth_texture_desc->release();
+
+  MTL::RenderPassDescriptor* render_pass_desc_scene =
+    MTL::RenderPassDescriptor::alloc()->init();
+  render_pass_desc_scene->colorAttachments()->object(0)->setTexture(
+    render_target_texture);
+  render_pass_desc_scene->colorAttachments()->object(0)->setLoadAction(
+    MTL::LoadActionClear);
+  render_pass_desc_scene->colorAttachments()->object(0)->setStoreAction(
+    MTL::StoreActionStore);
+  render_pass_desc_scene->colorAttachments()->object(0)->setClearColor(
+    MTL::ClearColor::Make(0.3922, 0.5843, 0.9294, 1.0));
+  render_pass_desc_scene->depthAttachment()->setClearDepth(1.0f);
+  render_pass_desc_scene->depthAttachment()->setLoadAction(
+    MTL::LoadActionClear);
+  render_pass_desc_scene->depthAttachment()->setStoreAction(
+    MTL::StoreActionStore);
+  render_pass_desc_scene->depthAttachment()->setTexture(depth_texture);
+
+  const char* shader_src_scene = R"(
         #include <metal_stdlib>
         #include "../../vertex.h"
 
@@ -93,36 +135,100 @@ int main(int argc, char** argv)
 
   using NS::StringEncoding::UTF8StringEncoding;
   NS::Error* error = nullptr;
-  MTL::Library* library = device->newLibrary(
-    NS::String::string(shader_src, UTF8StringEncoding), nullptr, &error);
-  if (!library) {
+  MTL::Library* library_scene = device->newLibrary(
+    NS::String::string(shader_src_scene, UTF8StringEncoding), nullptr, &error);
+  if (!library_scene) {
     std::cout << error->localizedDescription()->utf8String() << '\n';
     return 1;
   }
 
-  MTL::Function* vert_fn = library->newFunction(
+  MTL::Function* vert_fn_scene = library_scene->newFunction(
     NS::String::string("vertex_shader", UTF8StringEncoding));
-  MTL::Function* frag_fn = library->newFunction(
+  MTL::Function* frag_fn_scene = library_scene->newFunction(
     NS::String::string("fragment_shader", UTF8StringEncoding));
 
-  MTL::RenderPipelineDescriptor* pipeline_descriptor =
+  MTL::RenderPipelineDescriptor* pipeline_descriptor_scene =
     MTL::RenderPipelineDescriptor::alloc()->init();
-  pipeline_descriptor->setVertexFunction(vert_fn);
-  pipeline_descriptor->setFragmentFunction(frag_fn);
-  pipeline_descriptor->colorAttachments()->object(0)->setPixelFormat(
+  pipeline_descriptor_scene->setLabel(
+    NS::String::string("scene", UTF8StringEncoding));
+  pipeline_descriptor_scene->setVertexFunction(vert_fn_scene);
+  pipeline_descriptor_scene->setFragmentFunction(frag_fn_scene);
+  pipeline_descriptor_scene->colorAttachments()->object(0)->setPixelFormat(
     MTL::PixelFormat::PixelFormatBGRA8Unorm);
-  pipeline_descriptor->setDepthAttachmentPixelFormat(
+  pipeline_descriptor_scene->setDepthAttachmentPixelFormat(
     MTL::PixelFormat::PixelFormatDepth32Float);
+  pipeline_descriptor_scene->vertexBuffers()->object(0)->setMutability(
+    MTL::MutabilityImmutable);
 
-  MTL::RenderPipelineState* render_pipeline_state =
-    device->newRenderPipelineState(pipeline_descriptor, &error);
-  if (!render_pipeline_state) {
+  MTL::RenderPipelineState* render_pipeline_state_scene =
+    device->newRenderPipelineState(pipeline_descriptor_scene, &error);
+  if (!render_pipeline_state_scene) {
     std::cout << error->localizedDescription()->utf8String() << '\n';
     return 1;
   }
 
-  pipeline_descriptor->release();
-  library->release();
+  pipeline_descriptor_scene->release();
+  library_scene->release();
+
+  const char* shader_src_screen = R"(
+        #include <metal_stdlib>
+        #include "../../vertex.h"
+
+        struct texture_rasterizer_data_t {
+          float4 position [[position]];
+          float2 texcoord;
+        };
+
+        vertex texture_rasterizer_data_t vertex_shader(
+          constant vertex_pos_tex_t* vertices [[buffer(0)]],
+          const uint vertex_id [[vertex_id]]) {
+            texture_rasterizer_data_t out;
+            out.position = simd::float4(0.0, 0.0, 0.0, 1.0);
+            out.position.x = vertices[vertex_id].position.x;
+            out.position.y = vertices[vertex_id].position.y;
+            out.texcoord = vertices[vertex_id].texcoord;
+            return out;
+        }
+
+        fragment float4 fragment_shader(
+          texture_rasterizer_data_t in [[stage_in]],
+          metal::texture2d<float> texture [[texture(0)]]) {
+          metal::sampler simple_sampler;
+          return texture.sample(simple_sampler, in.texcoord);
+        }
+  )";
+
+  using NS::StringEncoding::UTF8StringEncoding;
+  MTL::Library* library_screen = device->newLibrary(
+    NS::String::string(shader_src_screen, UTF8StringEncoding), nullptr, &error);
+  if (!library_screen) {
+    std::cout << error->localizedDescription()->utf8String() << '\n';
+    return 1;
+  }
+
+  MTL::Function* vert_fn_screen = library_screen->newFunction(
+    NS::String::string("vertex_shader", UTF8StringEncoding));
+  MTL::Function* frag_fn_screen = library_screen->newFunction(
+    NS::String::string("fragment_shader", UTF8StringEncoding));
+
+  MTL::RenderPipelineDescriptor* pipeline_descriptor_screen =
+    MTL::RenderPipelineDescriptor::alloc()->init();
+  pipeline_descriptor_screen->setLabel(
+    NS::String::string("screen", UTF8StringEncoding));
+  pipeline_descriptor_screen->setVertexFunction(vert_fn_screen);
+  pipeline_descriptor_screen->setFragmentFunction(frag_fn_screen);
+  pipeline_descriptor_screen->colorAttachments()->object(0)->setPixelFormat(
+    render_target_texture->pixelFormat());
+
+  MTL::RenderPipelineState* render_pipeline_state_screen =
+    device->newRenderPipelineState(pipeline_descriptor_screen, &error);
+  if (!render_pipeline_state_screen) {
+    std::cout << error->localizedDescription()->utf8String() << '\n';
+    return 1;
+  }
+
+  pipeline_descriptor_screen->release();
+  library_screen->release();
 
   const uint16_t indices[] = {0, 1, 2, 0, 2, 3};
   const vertex_pos_col_t vertices[] = {
@@ -141,15 +247,15 @@ int main(int argc, char** argv)
   memcpy(index_buffer->contents(), indices, sizeof(indices));
   index_buffer->didModifyRange(NS::Range::Make(0, index_buffer->length()));
 
-  MTL::ArgumentEncoder* arg_encoder = vert_fn->newArgumentEncoder(0);
+  MTL::ArgumentEncoder* arg_encoder = vert_fn_scene->newArgumentEncoder(0);
   MTL::Buffer* arg_buffer = device->newBuffer(
     arg_encoder->encodedLength(), MTL::ResourceStorageModeManaged);
   arg_encoder->setArgumentBuffer(arg_buffer, 0);
   arg_encoder->setBuffer(vertex_buffer, 0, 0);
   arg_buffer->didModifyRange(NS::Range(0, arg_buffer->length()));
 
-  vert_fn->release();
-  frag_fn->release();
+  vert_fn_scene->release();
+  frag_fn_scene->release();
   arg_encoder->release();
 
   const int32_t MaxFramesInFlight = 3;
@@ -182,20 +288,6 @@ int main(int argc, char** argv)
     device->newDepthStencilState(depth_stencil_desc);
 
   depth_stencil_desc->release();
-
-  MTL::TextureDescriptor* depth_texture_desc =
-    MTL::TextureDescriptor::alloc()->init();
-  depth_texture_desc->setTextureType(MTL::TextureType2D);
-  depth_texture_desc->setPixelFormat(MTL::PixelFormat::PixelFormatDepth32Float);
-  depth_texture_desc->setWidth(width);
-  depth_texture_desc->setHeight(height);
-  depth_texture_desc->setStorageMode(MTL::StorageModeManaged);
-  depth_texture_desc->setUsage(
-    MTL::TextureUsageShaderRead | MTL::TextureUsageRenderTarget);
-
-  MTL::Texture* depth_texture = device->newTexture(depth_texture_desc);
-
-  depth_texture_desc->release();
 
   dispatch_semaphore_t semaphore = dispatch_semaphore_create(MaxFramesInFlight);
 
@@ -231,7 +323,7 @@ int main(int argc, char** argv)
     if (CA::MetalDrawable* current_drawable = metal_layer->nextDrawable()) {
       MTL::CommandBuffer* command_buffer = command_queue->commandBuffer();
       command_buffer->setLabel(NS::String::string(
-        "SimpleCommand", NS::StringEncoding::UTF8StringEncoding));
+        "Command Buffer", NS::StringEncoding::UTF8StringEncoding));
       dispatch_semaphore_wait(semaphore, DISPATCH_TIME_FOREVER);
       command_buffer->addCompletedHandler([&semaphore](MTL::CommandBuffer*) {
         dispatch_semaphore_signal(semaphore);
@@ -267,38 +359,63 @@ int main(int argc, char** argv)
       instance_data_buffer->didModifyRange(
         NS::Range::Make(0, instance_data_buffer->length()));
 
-      MTL::RenderPassDescriptor* pass_descriptor =
+      if (
+        MTL::RenderCommandEncoder* render_command_encoder =
+          command_buffer->renderCommandEncoder(render_pass_desc_scene)) {
+        render_command_encoder->setLabel(
+          NS::String::string("Scene Pass", UTF8StringEncoding));
+        render_command_encoder->setRenderPipelineState(
+          render_pipeline_state_scene);
+        render_command_encoder->setDepthStencilState(depth_stencil_state);
+        render_command_encoder->setCullMode(MTL::CullModeBack);
+        render_command_encoder->setFrontFacingWinding(
+          MTL::Winding::WindingCounterClockwise);
+        render_command_encoder->setViewport(
+          MTL::Viewport{0, 0, width, height, 0.0, 1.0});
+        render_command_encoder->setVertexBuffer(arg_buffer, 0, 0);
+        render_command_encoder->useResource(
+          vertex_buffer, MTL::ResourceUsageRead);
+        render_command_encoder->setVertexBuffer(frame_data_buffer, 0, 1);
+        render_command_encoder->setVertexBuffer(instance_data_buffer, 0, 2);
+        render_command_encoder->drawIndexedPrimitives(
+          MTL::PrimitiveType::PrimitiveTypeTriangle, NS::UInteger(6),
+          MTL::IndexType::IndexTypeUInt16, index_buffer, NS::UInteger(0),
+          InstanceCount);
+        render_command_encoder->endEncoding();
+      }
+
+      MTL::RenderPassDescriptor* render_pass_desc_screen =
         MTL::RenderPassDescriptor::renderPassDescriptor();
-      pass_descriptor->colorAttachments()->object(0)->setLoadAction(
+      render_pass_desc_screen->colorAttachments()->object(0)->setLoadAction(
         MTL::LoadActionClear);
-      pass_descriptor->colorAttachments()->object(0)->setStoreAction(
+      render_pass_desc_screen->colorAttachments()->object(0)->setStoreAction(
         MTL::StoreActionStore);
-      pass_descriptor->colorAttachments()->object(0)->setClearColor(
-        MTL::ClearColor::Make(0.3922, 0.5843, 0.9294, 1.0));
-      pass_descriptor->colorAttachments()->object(0)->setTexture(
+      render_pass_desc_screen->colorAttachments()->object(0)->setTexture(
         current_drawable->texture());
-      pass_descriptor->depthAttachment()->setClearDepth(1.0f);
-      pass_descriptor->depthAttachment()->setLoadAction(MTL::LoadActionClear);
-      pass_descriptor->depthAttachment()->setStoreAction(MTL::StoreActionStore);
-      pass_descriptor->depthAttachment()->setTexture(depth_texture);
-      MTL::RenderCommandEncoder* command_encoder =
-        command_buffer->renderCommandEncoder(pass_descriptor);
-      command_encoder->setRenderPipelineState(render_pipeline_state);
-      command_encoder->setDepthStencilState(depth_stencil_state);
-      command_encoder->setCullMode(MTL::CullModeBack);
-      command_encoder->setFrontFacingWinding(
-        MTL::Winding::WindingCounterClockwise);
-      command_encoder->setViewport(
-        MTL::Viewport{0, 0, width, height, 0.0, 1.0});
-      command_encoder->setVertexBuffer(arg_buffer, 0, 0);
-      command_encoder->useResource(vertex_buffer, MTL::ResourceUsageRead);
-      command_encoder->setVertexBuffer(frame_data_buffer, 0, 1);
-      command_encoder->setVertexBuffer(instance_data_buffer, 0, 2);
-      command_encoder->drawIndexedPrimitives(
-        MTL::PrimitiveType::PrimitiveTypeTriangle, NS::UInteger(6),
-        MTL::IndexType::IndexTypeUInt16, index_buffer, NS::UInteger(0),
-        InstanceCount);
-      command_encoder->endEncoding();
+
+      static const vertex_pos_tex_t quad_vertices[] = {
+        {{1.0f, -1.0f}, {1.0f, 1.0f}}, {{-1.0f, -1.0f}, {0.0f, 1.0f}},
+        {{-1.0f, 1.0f}, {0.0f, 0.0f}}, {{1.0f, -1.0f}, {1.0f, 1.0f}},
+        {{-1.0f, 1.0f}, {0.0f, 0.0f}}, {{1.0f, 1.0f}, {1.0f, 0.0f}},
+      };
+
+      if (
+        MTL::RenderCommandEncoder* render_command_encoder =
+          command_buffer->renderCommandEncoder(render_pass_desc_screen)) {
+        render_command_encoder->setLabel(
+          NS::String::string("Screen Pass", UTF8StringEncoding));
+        render_command_encoder->setViewport(
+          MTL::Viewport{0, 0, width, height, 0.0, 1.0});
+        render_command_encoder->setRenderPipelineState(
+          render_pipeline_state_screen);
+        render_command_encoder->setVertexBytes(
+          &quad_vertices, sizeof(quad_vertices), 0);
+        render_command_encoder->setFragmentTexture(render_target_texture, 0);
+        render_command_encoder->drawPrimitives(
+          MTL::PrimitiveTypeTriangle, NS::UInteger(0), NS::UInteger(6));
+        render_command_encoder->endEncoding();
+      }
+
       command_buffer->presentDrawable(current_drawable);
       command_buffer->commit();
     }
@@ -306,6 +423,8 @@ int main(int argc, char** argv)
     pool->release();
   }
 
+  render_pass_desc_scene->release();
+  render_target_texture->release();
   depth_texture->release();
   arg_buffer->release();
   vertex_buffer->release();
