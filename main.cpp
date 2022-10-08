@@ -117,25 +117,29 @@ int main(int argc, char** argv)
   pipeline_descriptor->release();
   library->release();
 
-  const vertex_pos_col_t triangle_vertices[] = {
-    {{-0.8f, -0.8f, 0.0f}, {1.0f, 0.0f, 0.0f, 1.0f}},
-    {{0.8f, -0.8f, 0.0f}, {0.0f, 1.0f, 0.0f, 1.0f}},
-    {{0.0f, 0.8f, 0.0f}, {0.0f, 0.0f, 1.0f, 1.0f}},
-  };
+  const vertex_pos_col_t vertices[] = {
+    {{-1.0f, -1.0f, 0.0f}, {1.0f, 0.0f, 0.0f, 1.0f}},
+    {{1.0f, -1.0f, 0.0f}, {0.0f, 1.0f, 0.0f, 1.0f}},
+    {{1.0f, 1.0f, 0.0f}, {0.0f, 0.0f, 1.0f, 1.0f}},
+    {{-1.0f, 1.0f, 0.0f}, {1.0f, 1.0f, 0.0f, 1.0f}}};
 
-  MTL::Buffer* vert_pos_col_buffer = device->newBuffer(
-    sizeof(triangle_vertices), MTL::ResourceStorageModeManaged);
-  memcpy(
-    vert_pos_col_buffer->contents(), triangle_vertices,
-    sizeof(triangle_vertices));
-  vert_pos_col_buffer->didModifyRange(
-    NS::Range::Make(0, vert_pos_col_buffer->length()));
+  const uint16_t indices[] = {0, 1, 2, 0, 2, 3};
+
+  MTL::Buffer* vertex_buffer =
+    device->newBuffer(sizeof(vertices), MTL::ResourceStorageModeManaged);
+  memcpy(vertex_buffer->contents(), vertices, sizeof(vertices));
+  vertex_buffer->didModifyRange(NS::Range::Make(0, vertex_buffer->length()));
+
+  MTL::Buffer* index_buffer =
+    device->newBuffer(sizeof(indices), MTL::ResourceStorageModeManaged);
+  memcpy(index_buffer->contents(), indices, sizeof(indices));
+  index_buffer->didModifyRange(NS::Range::Make(0, index_buffer->length()));
 
   MTL::ArgumentEncoder* arg_encoder = vert_fn->newArgumentEncoder(0);
   MTL::Buffer* arg_buffer = device->newBuffer(
     arg_encoder->encodedLength(), MTL::ResourceStorageModeManaged);
   arg_encoder->setArgumentBuffer(arg_buffer, 0);
-  arg_encoder->setBuffer(vert_pos_col_buffer, 0, 0);
+  arg_encoder->setBuffer(vertex_buffer, 0, 0);
   arg_buffer->didModifyRange(NS::Range(0, arg_buffer->length()));
 
   vert_fn->release();
@@ -228,11 +232,11 @@ int main(int argc, char** argv)
       command_encoder->setViewport(
         MTL::Viewport{0, 0, width, height, 0.0, 1.0});
       command_encoder->setVertexBuffer(arg_buffer, 0, 0);
-      command_encoder->useResource(vert_pos_col_buffer, MTL::ResourceUsageRead);
+      command_encoder->useResource(vertex_buffer, MTL::ResourceUsageRead);
       command_encoder->setVertexBuffer(frame_data_buffer, 0, 1);
-      command_encoder->drawPrimitives(
-        MTL::PrimitiveType::PrimitiveTypeTriangle, NS::UInteger(0),
-        NS::UInteger(3));
+      command_encoder->drawIndexedPrimitives(
+        MTL::PrimitiveType::PrimitiveTypeTriangle, NS::UInteger(6),
+        MTL::IndexType::IndexTypeUInt16, index_buffer, NS::UInteger(0));
       command_encoder->endEncoding();
       command_buffer->presentDrawable(current_drawable);
       command_buffer->commit();
@@ -242,7 +246,8 @@ int main(int argc, char** argv)
   }
 
   arg_buffer->release();
-  vert_pos_col_buffer->release();
+  vertex_buffer->release();
+  index_buffer->release();
   for (int i = 0; i < MaxFramesInFlight; ++i) {
     frame_data_buffers[i]->release();
   }
