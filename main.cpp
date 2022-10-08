@@ -195,18 +195,19 @@ int main(int argc, char** argv)
 
       const as::mat4 view = as::mat4_from_affine(camera.view());
       const as::mat4 view_projection = perspective_projection * view;
-      frame_data->mvp.columns[0] = simd::float4{
-        view_projection[0], view_projection[1], view_projection[2],
-        view_projection[3]};
-      frame_data->mvp.columns[1] = simd::float4{
-        view_projection[4], view_projection[5], view_projection[6],
-        view_projection[7]};
-      frame_data->mvp.columns[2] = simd::float4{
-        view_projection[8], view_projection[9], view_projection[10],
-        view_projection[11]};
-      frame_data->mvp.columns[3] = simd::float4{
-        view_projection[12], view_projection[13], view_projection[14],
-        view_projection[15]};
+      frame_data->mvp = simd::float4x4{
+        simd::float4{
+          view_projection[0], view_projection[1], view_projection[2],
+          view_projection[3]},
+        simd::float4{
+          view_projection[4], view_projection[5], view_projection[6],
+          view_projection[7]},
+        simd::float4{
+          view_projection[8], view_projection[9], view_projection[10],
+          view_projection[11]},
+        simd::float4{
+          view_projection[12], view_projection[13], view_projection[14],
+          view_projection[15]}};
 
       frame_data_buffer->didModifyRange(
         NS::Range::Make(0, sizeof(frame_data_t)));
