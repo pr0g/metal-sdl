@@ -78,7 +78,8 @@ int main(int argc, char** argv)
           uint vertex_id [[vertex_id]],
           uint instance_id [[instance_id]]) {
             rasterizer_data_t out;
-            out.position = frame_data->view_projection
+            out.position =
+              frame_data->view_projection
               * instance_data[instance_id].model
               * float4(vertices->pos_col[vertex_id].position.xy, 0.0, 1.0);
             out.color = vertices->pos_col[vertex_id].color;
@@ -110,6 +111,8 @@ int main(int argc, char** argv)
   pipeline_descriptor->setFragmentFunction(frag_fn);
   pipeline_descriptor->colorAttachments()->object(0)->setPixelFormat(
     MTL::PixelFormat::PixelFormatBGRA8Unorm);
+  pipeline_descriptor->setDepthAttachmentPixelFormat(
+    MTL::PixelFormat::PixelFormatDepth32Float);
 
   MTL::RenderPipelineState* render_pipeline_state =
     device->newRenderPipelineState(pipeline_descriptor, &error);
@@ -123,10 +126,10 @@ int main(int argc, char** argv)
 
   const uint16_t indices[] = {0, 1, 2, 0, 2, 3};
   const vertex_pos_col_t vertices[] = {
-    {{-1.0f, -1.0f, 0.0f}, {1.0f, 0.0f, 0.0f, 1.0f}},
-    {{1.0f, -1.0f, 0.0f}, {0.0f, 1.0f, 0.0f, 1.0f}},
-    {{1.0f, 1.0f, 0.0f}, {0.0f, 0.0f, 1.0f, 1.0f}},
-    {{-1.0f, 1.0f, 0.0f}, {1.0f, 1.0f, 0.0f, 1.0f}}};
+    {{-0.5f, -0.5f, 0.0f}, {1.0f, 0.0f, 0.0f, 1.0f}},
+    {{0.5f, -0.5f, 0.0f}, {0.0f, 1.0f, 0.0f, 1.0f}},
+    {{0.5f, 0.5f, 0.0f}, {0.0f, 0.0f, 1.0f, 1.0f}},
+    {{-0.5f, 0.5f, 0.0f}, {1.0f, 1.0f, 0.0f, 1.0f}}};
 
   MTL::Buffer* vertex_buffer =
     device->newBuffer(sizeof(vertices), MTL::ResourceStorageModeManaged);
@@ -169,12 +172,23 @@ int main(int argc, char** argv)
       device->newBuffer(sizeof(frame_data_t), MTL::ResourceStorageModeManaged);
   }
 
+  MTL::DepthStencilDescriptor* depth_stencil_desc =
+    MTL::DepthStencilDescriptor::alloc()->init();
+  depth_stencil_desc->setDepthCompareFunction(
+    MTL::CompareFunction::CompareFunctionLess);
+  depth_stencil_desc->setDepthWriteEnabled(true);
+
+  MTL::DepthStencilState* depth_stencil_state =
+    device->newDepthStencilState(depth_stencil_desc);
+
+  depth_stencil_desc->release();
+
   dispatch_semaphore_t semaphore = dispatch_semaphore_create(MaxFramesInFlight);
 
   asc::Camera camera;
-  camera.pivot = as::vec3(0.0f, 0.0f, -6.0f);
+  camera.pivot = as::vec3(0.0f, 0.0f, -2.0f);
   const as::mat4 perspective_projection = as::perspective_d3d_lh(
-    as::radians(60.0f), float(width) / float(height), 5.0f, 100.0f);
+    as::radians(60.0f), float(width) / float(height), 0.1f, 100.0f);
 
   MTL::CommandQueue* command_queue = device->newCommandQueue();
   for (bool quit = false; !quit;) {
@@ -214,15 +228,17 @@ int main(int argc, char** argv)
       const as::mat4 view = as::mat4_from_affine(camera.view());
       const as::mat4 view_projection = perspective_projection * view;
       const auto& vp = view_projection;
-
-      // work around compatibility with as library
       frame_data->view_projection = simd::float4x4{
-        simd::float4{vp[0], vp[4], vp[8], vp[12]},
-        simd::float4{vp[1], vp[5], vp[9], vp[13]},
-        simd::float4{vp[2], vp[6], vp[10], vp[14]},
-        simd::float4{vp[4], vp[7], vp[11], vp[15]}};
+        simd::float4{vp[0], vp[1], vp[2], vp[3]},
+        simd::float4{vp[4], vp[5], vp[6], vp[7]},
+        simd::float4{vp[8], vp[9], vp[10], vp[11]},
+        simd::float4{vp[12], vp[13], vp[14], vp[15]}};
       frame_data_buffer->didModifyRange(
         NS::Range::Make(0, sizeof(frame_data_t)));
+
+      const as::vec3 positions[InstanceCount] = {
+        as::vec3{-0.25f, 0.25f, 1.0f}, as::vec3{0.25f, -0.25f, 3.0f},
+        as::vec3{-0.25f, 5.5f, 20.0f}, as::vec3{-30.0f, 0.0f, 80.0f}};
 
       auto* instance_data =
         static_cast<instance_data_t*>(instance_data_buffer->contents());
@@ -231,8 +247,9 @@ int main(int argc, char** argv)
           simd::float4{1.0f, 0.0f, 0.0f, 0.0f},
           simd::float4{0.0f, 1.0f, 0.0f, 0.0f},
           simd::float4{0.0f, 0.0f, 1.0f, 0.0f},
-          simd::float4{-3.3f + float(i) * 2.2f, 0.0f, 0.0f, 1.0f}};
+          simd::float4{positions[i].x, positions[i].y, positions[i].z, 1.0f}};
       }
+
       instance_data_buffer->didModifyRange(
         NS::Range::Make(0, instance_data_buffer->length()));
 
@@ -246,9 +263,17 @@ int main(int argc, char** argv)
         MTL::ClearColor::Make(0.3922, 0.5843, 0.9294, 1.0));
       pass_descriptor->colorAttachments()->object(0)->setTexture(
         current_drawable->texture());
+      // need texture
+      // pass_descriptor->depthAttachment()->setClearDepth(0.0f);
+      // pass_descriptor->depthAttachment()->setLoadAction(MTL::LoadActionClear);
+      // pass_descriptor->depthAttachment()->setStoreAction(MTL::StoreActionStore);
       MTL::RenderCommandEncoder* command_encoder =
         command_buffer->renderCommandEncoder(pass_descriptor);
       command_encoder->setRenderPipelineState(render_pipeline_state);
+      command_encoder->setDepthStencilState(depth_stencil_state);
+      command_encoder->setCullMode(MTL::CullModeBack);
+      command_encoder->setFrontFacingWinding(
+        MTL::Winding::WindingCounterClockwise);
       command_encoder->setViewport(
         MTL::Viewport{0, 0, width, height, 0.0, 1.0});
       command_encoder->setVertexBuffer(arg_buffer, 0, 0);
@@ -270,6 +295,7 @@ int main(int argc, char** argv)
   arg_buffer->release();
   vertex_buffer->release();
   index_buffer->release();
+  depth_stencil_state->release();
   for (int i = 0; i < MaxFramesInFlight; ++i) {
     frame_data_buffers[i]->release();
     instance_data_buffers[i]->release();
