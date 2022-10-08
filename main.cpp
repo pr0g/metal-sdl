@@ -272,6 +272,7 @@ int main(int argc, char** argv)
   index_buffer->release();
   for (int i = 0; i < MaxFramesInFlight; ++i) {
     frame_data_buffers[i]->release();
+    instance_data_buffers[i]->release();
   }
   command_queue->release();
   device->release();
