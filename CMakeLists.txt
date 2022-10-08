@@ -13,7 +13,7 @@ FetchContent_Declare(
 FetchContent_Declare(
   as-camera-input
   GIT_REPOSITORY https://github.com/pr0g/as-camera-input.git
-  GIT_TAG d47bd06a9dbcfa3f5cb92cdab146d599f0e0b978)
+  GIT_TAG 4375a504346305c9dea45c9000a1a06220f8b725)
 
 FetchContent_MakeAvailable(as as-camera-input)
 
@@ -30,3 +30,9 @@ target_link_libraries(
           as-camera-input
           SDL2::SDL2
           SDL2::SDL2main)
+target_compile_definitions(
+  ${PROJECT_NAME}
+  PRIVATE $<$<BOOL:${AS_PRECISION_FLOAT}>:AS_PRECISION_FLOAT>
+          $<$<BOOL:${AS_PRECISION_DOUBLE}>:AS_PRECISION_DOUBLE>
+          $<$<BOOL:${AS_COL_MAJOR}>:AS_COL_MAJOR>
+          $<$<BOOL:${AS_ROW_MAJOR}>:AS_ROW_MAJOR>)

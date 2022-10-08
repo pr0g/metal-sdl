@@ -8,9 +8,20 @@
 #include <SDL.h>
 #include <SDL_metal.h>
 
+#include <as-camera-input/as-camera-input.hpp>
+#include <as/as-view.hpp>
+
 #include <iostream>
 
 #include "vertex.h"
+
+namespace asc
+{
+Handedness handedness()
+{
+  return Handedness::Left;
+}
+} // namespace asc
 
 int main(int argc, char** argv)
 {
@@ -62,9 +73,10 @@ int main(int argc, char** argv)
 
         vertex rasterizer_data_t vertex_shader(
           uint vertex_id [[vertex_id]],
-          constant VertexData* vertices [[buffer(0)]]) {
+          constant VertexData* vertices [[buffer(0)]],
+          constant frame_data_t* frame_data [[buffer(1)]]) {
             rasterizer_data_t out;
-            out.position = float4(vertices->pos_col[vertex_id].position.xy, 0.0, 1.0);
+            out.position = float4(vertices->pos_col[vertex_id].position.xy, 0.0, 1.0) * frame_data->mvp;
             out.color = vertices->pos_col[vertex_id].color;
             return out;
         }
@@ -130,22 +142,75 @@ int main(int argc, char** argv)
   frag_fn->release();
   arg_encoder->release();
 
-  MTL::CommandQueue* command_queue = device->newCommandQueue();
+  // uniform data
+  int frame_index = 0;
+  MTL::Buffer* frame_data_buffers[3] = {};
+  const int32_t MaxFramesInFlight = 3;
+  for (int i = 0; i < MaxFramesInFlight; ++i) {
+    frame_data_buffers[i] =
+      device->newBuffer(sizeof(frame_data_t), MTL::ResourceStorageModeManaged);
+  }
 
+  dispatch_semaphore_t semaphore = dispatch_semaphore_create(MaxFramesInFlight);
+
+  asc::Camera camera;
+  camera.pivot = as::vec3(0.0f, 0.0f, -4.0f);
+  const as::mat4 perspective_projection = as::perspective_d3d_lh(
+    as::radians(60.0f), float(width) / float(height), 5.0f, 100.0f);
+
+  MTL::CommandQueue* command_queue = device->newCommandQueue();
   for (bool quit = false; !quit;) {
     for (SDL_Event current_event; SDL_PollEvent(&current_event) != 0;) {
       if (current_event.type == SDL_QUIT) {
         quit = true;
         break;
       }
+      if (current_event.type == SDL_KEYDOWN) {
+        const auto* keyboard_event = (SDL_KeyboardEvent*)&current_event;
+        if (keyboard_event->keysym.scancode == SDL_SCANCODE_S) {
+          camera.pivot -= as::vec3::axis_z(0.1f);
+        }
+        if (keyboard_event->keysym.scancode == SDL_SCANCODE_W) {
+          camera.pivot += as::vec3::axis_z(0.1f);
+        }
+      }
     }
 
     NS::AutoreleasePool* pool = NS::AutoreleasePool::alloc()->init();
+
+    frame_index = (frame_index + 1) % MaxFramesInFlight;
+    MTL::Buffer* frame_data_buffer = frame_data_buffers[frame_index];
 
     if (CA::MetalDrawable* current_drawable = metal_layer->nextDrawable()) {
       MTL::CommandBuffer* command_buffer = command_queue->commandBuffer();
       command_buffer->setLabel(NS::String::string(
         "SimpleCommand", NS::StringEncoding::UTF8StringEncoding));
+      dispatch_semaphore_wait(semaphore, DISPATCH_TIME_FOREVER);
+      command_buffer->addCompletedHandler([&semaphore](MTL::CommandBuffer*) {
+        dispatch_semaphore_signal(semaphore);
+      });
+
+      auto* frame_data =
+        static_cast<frame_data_t*>(frame_data_buffer->contents());
+
+      const as::mat4 view = as::mat4_from_affine(camera.view());
+      const as::mat4 view_projection = perspective_projection * view;
+      frame_data->mvp.columns[0] = simd::float4{
+        view_projection[0], view_projection[1], view_projection[2],
+        view_projection[3]};
+      frame_data->mvp.columns[1] = simd::float4{
+        view_projection[4], view_projection[5], view_projection[6],
+        view_projection[7]};
+      frame_data->mvp.columns[2] = simd::float4{
+        view_projection[8], view_projection[9], view_projection[10],
+        view_projection[11]};
+      frame_data->mvp.columns[3] = simd::float4{
+        view_projection[12], view_projection[13], view_projection[14],
+        view_projection[15]};
+
+      frame_data_buffer->didModifyRange(
+        NS::Range::Make(0, sizeof(frame_data_t)));
+
       MTL::RenderPassDescriptor* pass_descriptor =
         MTL::RenderPassDescriptor::renderPassDescriptor();
       pass_descriptor->colorAttachments()->object(0)->setLoadAction(
@@ -163,6 +228,7 @@ int main(int argc, char** argv)
         MTL::Viewport{0, 0, width, height, 0.0, 1.0});
       command_encoder->setVertexBuffer(arg_buffer, 0, 0);
       command_encoder->useResource(vert_pos_col_buffer, MTL::ResourceUsageRead);
+      command_encoder->setVertexBuffer(frame_data_buffer, 0, 1);
       command_encoder->drawPrimitives(
         MTL::PrimitiveType::PrimitiveTypeTriangle, NS::UInteger(0),
         NS::UInteger(3));
