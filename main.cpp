@@ -183,9 +183,7 @@ int main(int argc, char** argv)
           constant vertex_pos_tex_t* vertices [[buffer(0)]],
           const uint vertex_id [[vertex_id]]) {
             texture_rasterizer_data_t out;
-            out.position = simd::float4(0.0, 0.0, 0.0, 1.0);
-            out.position.x = vertices[vertex_id].position.x;
-            out.position.y = vertices[vertex_id].position.y;
+            out.position = simd::float4(vertices[vertex_id].position.xy, 0.0, 1.0);
             out.texcoord = vertices[vertex_id].texcoord;
             return out;
         }
