@@ -17,7 +17,7 @@ FetchContent_Declare(
 FetchContent_Declare(
   metal-cpp-cmake
   GIT_REPOSITORY https://github.com/pr0g/metal-cpp-cmake.git
-  GIT_TAG 2e855c23e04dd71bcfdd32cca4586cbb3ac89675)
+  GIT_TAG 75bcf047702aec5ab08ac90c64694af76ae0910e)
 
 FetchContent_MakeAvailable(as as-camera-input metal-cpp-cmake)
 
