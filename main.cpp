@@ -291,7 +291,7 @@ int main(int argc, char** argv)
 
   asc::Camera camera;
   camera.pivot = as::vec3(0.0f, 0.0f, -2.0f);
-  const as::mat4 perspective_projection = as::reverse_z(as::perspective_d3d_lh(
+  const as::mat4 perspective_projection = as::reverse_z(as::perspective_mtl_lh(
     as::radians(60.0f), float(width) / float(height), 0.1f, 100.0f));
 
   MTL::CommandQueue* command_queue = device->newCommandQueue();
