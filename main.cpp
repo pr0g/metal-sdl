@@ -93,7 +93,7 @@ int main(int argc, char** argv)
     MTL::StoreActionStore);
   render_pass_desc_scene->colorAttachments()->object(0)->setClearColor(
     MTL::ClearColor::Make(0.3922, 0.5843, 0.9294, 1.0));
-  render_pass_desc_scene->depthAttachment()->setClearDepth(1.0f);
+  render_pass_desc_scene->depthAttachment()->setClearDepth(0.0f);
   render_pass_desc_scene->depthAttachment()->setLoadAction(
     MTL::LoadActionClear);
   render_pass_desc_scene->depthAttachment()->setStoreAction(
@@ -279,7 +279,7 @@ int main(int argc, char** argv)
   MTL::DepthStencilDescriptor* depth_stencil_desc =
     MTL::DepthStencilDescriptor::alloc()->init();
   depth_stencil_desc->setDepthCompareFunction(
-    MTL::CompareFunction::CompareFunctionLess);
+    MTL::CompareFunction::CompareFunctionGreater);
   depth_stencil_desc->setDepthWriteEnabled(true);
 
   MTL::DepthStencilState* depth_stencil_state =
@@ -291,8 +291,8 @@ int main(int argc, char** argv)
 
   asc::Camera camera;
   camera.pivot = as::vec3(0.0f, 0.0f, -2.0f);
-  const as::mat4 perspective_projection = as::perspective_d3d_lh(
-    as::radians(60.0f), float(width) / float(height), 0.1f, 100.0f);
+  const as::mat4 perspective_projection = as::reverse_z(as::perspective_d3d_lh(
+    as::radians(60.0f), float(width) / float(height), 0.1f, 100.0f));
 
   MTL::CommandQueue* command_queue = device->newCommandQueue();
   for (bool quit = false; !quit;) {
