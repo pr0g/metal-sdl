@@ -9,7 +9,7 @@ include(FetchContent)
 FetchContent_Declare(
   as
   GIT_REPOSITORY https://github.com/pr0g/as.git
-  GIT_TAG 57ac213e5c90363791f59ad29d01d992d7126e9f)
+  GIT_TAG a08c946ecc477e38beff41aa0e47849a8c0383c6)
 FetchContent_Declare(
   as-camera-input
   GIT_REPOSITORY https://github.com/pr0g/as-camera-input.git
