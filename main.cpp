@@ -8,9 +8,11 @@
 #include <SDL.h>
 #include <SDL_metal.h>
 
+#include <as-camera-input-sdl/as-camera-input-sdl.hpp>
 #include <as-camera-input/as-camera-input.hpp>
 #include <as/as-view.hpp>
 
+#include <chrono>
 #include <iostream>
 
 #include "vertex.h"
@@ -22,6 +24,8 @@ Handedness handedness()
   return Handedness::Left;
 }
 } // namespace asc
+
+using fp_seconds = std::chrono::duration<float, std::chrono::seconds::period>;
 
 int main(int argc, char** argv)
 {
@@ -289,29 +293,43 @@ int main(int argc, char** argv)
 
   dispatch_semaphore_t semaphore = dispatch_semaphore_create(MaxFramesInFlight);
 
-  asc::Camera camera;
-  camera.pivot = as::vec3(0.0f, 0.0f, -2.0f);
   const as::mat4 perspective_projection =
     as::reverse_z(as::perspective_metal_lh(
       as::radians(60.0f), float(width) / float(height), 0.1f, 100.0f));
 
+  asc::Camera camera;
+  camera.pivot = as::vec3(0.0f, 0.0f, -2.0f);
+  asc::Camera target_camera = camera;
+
+  asci::CameraSystem camera_system;
+  asci::TranslateCameraInput translate_camera{
+    asci::lookTranslation, asci::translatePivot};
+  asci::RotateCameraInput rotate_camera{asci::MouseButton::Right};
+  camera_system.cameras_.addCamera(&translate_camera);
+  camera_system.cameras_.addCamera(&rotate_camera);
+
   MTL::CommandQueue* command_queue = device->newCommandQueue();
+
+  auto prev = std::chrono::system_clock::now();
   for (bool quit = false; !quit;) {
     for (SDL_Event current_event; SDL_PollEvent(&current_event) != 0;) {
       if (current_event.type == SDL_QUIT) {
         quit = true;
         break;
       }
-      if (current_event.type == SDL_KEYDOWN) {
-        const auto* keyboard_event = (SDL_KeyboardEvent*)&current_event;
-        if (keyboard_event->keysym.scancode == SDL_SCANCODE_S) {
-          camera.pivot -= as::vec3::axis_z(0.1f);
-        }
-        if (keyboard_event->keysym.scancode == SDL_SCANCODE_W) {
-          camera.pivot += as::vec3::axis_z(0.1f);
-        }
-      }
+      camera_system.handleEvents(asci_sdl::sdlToInput(&current_event));
     }
+
+    auto now = std::chrono::system_clock::now();
+    auto delta = now - prev;
+    prev = now;
+
+    const float delta_time =
+      std::chrono::duration_cast<fp_seconds>(delta).count();
+
+    target_camera = camera_system.stepCamera(target_camera, delta_time);
+    camera = asci::smoothCamera(
+      camera, target_camera, asci::SmoothProps{}, delta_time);
 
     NS::AutoreleasePool* pool = NS::AutoreleasePool::alloc()->init();
 
