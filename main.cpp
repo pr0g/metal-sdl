@@ -25,6 +25,14 @@ Handedness handedness()
 }
 } // namespace asc
 
+enum class render_mode_e
+{
+  normal,
+  depth
+};
+
+render_mode_e g_render_mode = render_mode_e::normal;
+
 using fp_seconds = std::chrono::duration<float, std::chrono::seconds::period>;
 
 int main(int argc, char** argv)
@@ -198,6 +206,26 @@ int main(int argc, char** argv)
           metal::sampler simple_sampler;
           return texture.sample(simple_sampler, in.texcoord);
         }
+
+        float linearize_depth(
+          texture_rasterizer_data_t in [[stage_in]],
+          metal::texture2d<float> texture [[texture(0)]])
+        {
+            float near = 5.0;
+            float far  = 100.0;
+            metal::sampler simple_sampler;
+            float depth = texture.sample(simple_sampler, in.texcoord).x;
+            // inverse of perspective projection matrix transformation
+            return near * far / (far - depth * (far - near));
+        }
+
+        fragment float4 fragment_shader_depth(
+          texture_rasterizer_data_t in [[stage_in]],
+          metal::texture2d<float> texture [[texture(0)]]) {
+          float c = linearize_depth(in, texture);
+          float3 range = float3(c - 5.0) / (100.0 - 5.0);
+          return float4(range, 1.0); // 5.0 is near, 100.0 is far
+        }
   )";
 
   using NS::StringEncoding::UTF8StringEncoding;
@@ -212,6 +240,8 @@ int main(int argc, char** argv)
     NS::String::string("vertex_shader", UTF8StringEncoding));
   MTL::Function* frag_fn_screen = library_screen->newFunction(
     NS::String::string("fragment_shader", UTF8StringEncoding));
+  MTL::Function* frag_fn_screen_depth = library_screen->newFunction(
+    NS::String::string("fragment_shader_depth", UTF8StringEncoding));
 
   MTL::RenderPipelineDescriptor* pipeline_descriptor_screen =
     MTL::RenderPipelineDescriptor::alloc()->init();
@@ -230,6 +260,25 @@ int main(int argc, char** argv)
   }
 
   pipeline_descriptor_screen->release();
+
+  MTL::RenderPipelineDescriptor* pipeline_descriptor_screen_depth =
+    MTL::RenderPipelineDescriptor::alloc()->init();
+  pipeline_descriptor_screen_depth->setLabel(
+    NS::String::string("screen-depth", UTF8StringEncoding));
+  pipeline_descriptor_screen_depth->setVertexFunction(vert_fn_screen);
+  pipeline_descriptor_screen_depth->setFragmentFunction(frag_fn_screen_depth);
+  pipeline_descriptor_screen_depth->colorAttachments()
+    ->object(0)
+    ->setPixelFormat(MTL::PixelFormat::PixelFormatBGRA8Unorm);
+
+  MTL::RenderPipelineState* render_pipeline_state_screen_depth =
+    device->newRenderPipelineState(pipeline_descriptor_screen_depth, &error);
+  if (!render_pipeline_state_screen_depth) {
+    std::cout << error->localizedDescription()->utf8String() << '\n';
+    return 1;
+  }
+
+  pipeline_descriptor_screen_depth->release();
   library_screen->release();
 
   const uint16_t indices[] = {0, 1, 2, 0, 2, 3};
@@ -295,7 +344,7 @@ int main(int argc, char** argv)
 
   const as::mat4 perspective_projection =
     as::reverse_z(as::perspective_metal_lh(
-      as::radians(60.0f), float(width) / float(height), 0.1f, 100.0f));
+      as::radians(60.0f), float(width) / float(height), 5.0f, 100.0f));
 
   asc::Camera camera;
   camera.pivot = as::vec3(0.0f, 0.0f, -2.0f);
@@ -318,6 +367,16 @@ int main(int argc, char** argv)
         break;
       }
       camera_system.handleEvents(asci_sdl::sdlToInput(&current_event));
+      if (current_event.type == SDL_KEYDOWN) {
+        const auto* keyboard_event = (SDL_KeyboardEvent*)&current_event;
+        if (keyboard_event->keysym.scancode == SDL_SCANCODE_R) {
+          if (g_render_mode == render_mode_e::depth) {
+            g_render_mode = render_mode_e::normal;
+          } else {
+            g_render_mode = render_mode_e::depth;
+          }
+        }
+      }
     }
 
     auto now = std::chrono::system_clock::now();
@@ -424,10 +483,15 @@ int main(int argc, char** argv)
         render_command_encoder->setViewport(
           MTL::Viewport{0, 0, width, height, 0.0, 1.0});
         render_command_encoder->setRenderPipelineState(
-          render_pipeline_state_screen);
+          g_render_mode == render_mode_e::normal
+            ? render_pipeline_state_screen
+            : render_pipeline_state_screen_depth);
         render_command_encoder->setVertexBytes(
           &quad_vertices, sizeof(quad_vertices), 0);
-        render_command_encoder->setFragmentTexture(render_target_texture, 0);
+        render_command_encoder->setFragmentTexture(
+          g_render_mode == render_mode_e::normal ? render_target_texture
+                                                 : depth_texture,
+          0);
         render_command_encoder->drawPrimitives(
           MTL::PrimitiveTypeTriangle, NS::UInteger(0), NS::UInteger(6));
         render_command_encoder->endEncoding();
