@@ -211,20 +211,28 @@ int main(int argc, char** argv)
           texture_rasterizer_data_t in [[stage_in]],
           metal::texture2d<float> texture [[texture(0)]])
         {
-            float near = 5.0;
+            float near = 0.01;
             float far  = 100.0;
             metal::sampler simple_sampler;
             float depth = texture.sample(simple_sampler, in.texcoord).x;
             // inverse of perspective projection matrix transformation
+            // standard linearization
             return near * far / (far - depth * (far - near));
+            // standard linearization alternative
+            // return near * far / ((depth * (near - far)) + far);
+            // reverse linearization
+            // return near * far / ((depth * (far - near)) + near);
         }
 
         fragment float4 fragment_shader_depth(
           texture_rasterizer_data_t in [[stage_in]],
           metal::texture2d<float> texture [[texture(0)]]) {
+          // increase to help visualization (increments of orders of magnitude)
+          // (required for reverse z)
+          const float scale_factor = 1000000.0f; // e.g. 1000000.0
           float c = linearize_depth(in, texture);
-          float3 range = float3(c - 5.0) / (100.0 - 5.0);
-          return float4(range, 1.0); // 5.0 is near, 100.0 is far
+          float3 range = float3(c - 0.01) / (100.0 - 0.01);
+          return float4(range * scale_factor, 1.0); // 0.01 is near, 100.0 is far
         }
   )";
 
@@ -344,7 +352,7 @@ int main(int argc, char** argv)
 
   const as::mat4 perspective_projection =
     as::reverse_z(as::perspective_metal_lh(
-      as::radians(60.0f), float(width) / float(height), 5.0f, 100.0f));
+      as::radians(60.0f), float(width) / float(height), 0.01f, 100.0f));
 
   asc::Camera camera;
   camera.pivot = as::vec3(0.0f, 0.0f, -2.0f);
