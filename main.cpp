@@ -5,6 +5,10 @@
 #include <Metal/Metal.hpp>
 #include <QuartzCore/QuartzCore.hpp>
 
+#include "imgui/imgui_impl_metal.h"
+#include "imgui/imgui_impl_sdl.h"
+#include "vertex.h"
+
 #include <SDL.h>
 #include <SDL_metal.h>
 
@@ -14,8 +18,6 @@
 
 #include <chrono>
 #include <iostream>
-
-#include "vertex.h"
 
 namespace asc
 {
@@ -365,11 +367,17 @@ int main(int argc, char** argv)
   camera_system.cameras_.addCamera(&translate_camera);
   camera_system.cameras_.addCamera(&rotate_camera);
 
+  ImGui::CreateContext();
+
+  ImGui_ImplSDL2_InitForMetal(window);
+  ImGui_ImplMetal_Init(device);
+
   MTL::CommandQueue* command_queue = device->newCommandQueue();
 
   auto prev = std::chrono::system_clock::now();
   for (bool quit = false; !quit;) {
     for (SDL_Event current_event; SDL_PollEvent(&current_event) != 0;) {
+      ImGui_ImplSDL2_ProcessEvent(&current_event);
       if (current_event.type == SDL_QUIT) {
         quit = true;
         break;
@@ -465,6 +473,17 @@ int main(int argc, char** argv)
           MTL::PrimitiveType::PrimitiveTypeTriangle, NS::UInteger(6),
           MTL::IndexType::IndexTypeUInt16, index_buffer, NS::UInteger(0),
           InstanceCount);
+
+        ImGui_ImplMetal_NewFrame(render_pass_desc_scene);
+        ImGui_ImplSDL2_NewFrame();
+        ImGui::NewFrame();
+
+        ImGui::ShowDemoWindow();
+
+        ImGui::Render();
+        ImGui_ImplMetal_RenderDrawData(
+          ImGui::GetDrawData(), command_buffer, render_command_encoder);
+
         render_command_encoder->endEncoding();
       }
 
@@ -512,6 +531,10 @@ int main(int argc, char** argv)
     pool->release();
   }
 
+  ImGui_ImplMetal_Shutdown();
+  ImGui_ImplSDL2_Shutdown();
+  ImGui::DestroyContext();
+
   render_pass_desc_scene->release();
   render_target_texture->release();
   depth_texture->release();
@@ -525,6 +548,10 @@ int main(int argc, char** argv)
   }
   command_queue->release();
   device->release();
+
+  SDL_DestroyRenderer(renderer);
+  SDL_DestroyWindow(window);
+  SDL_Quit();
 
   return 0;
 }
