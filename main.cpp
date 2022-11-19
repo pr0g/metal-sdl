@@ -127,7 +127,7 @@ int main(int argc, char** argv)
   reverse_render_pass_desc_scene->colorAttachments()->object(0)->setStoreAction(
     MTL::StoreActionStore);
   reverse_render_pass_desc_scene->colorAttachments()->object(0)->setClearColor(
-    MTL::ClearColor::Make(0.3922, 0.5843, 0.9294, 1.0));
+    MTL::ClearColor::Make(0.2, 0.3, 0.3, 1.0));
   reverse_render_pass_desc_scene->depthAttachment()->setClearDepth(0.0f);
   reverse_render_pass_desc_scene->depthAttachment()->setLoadAction(
     MTL::LoadActionClear);
@@ -144,7 +144,7 @@ int main(int argc, char** argv)
   normal_render_pass_desc_scene->colorAttachments()->object(0)->setStoreAction(
     MTL::StoreActionStore);
   normal_render_pass_desc_scene->colorAttachments()->object(0)->setClearColor(
-    MTL::ClearColor::Make(0.3922, 0.5843, 0.9294, 1.0));
+    MTL::ClearColor::Make(0.2, 0.3, 0.3, 1.0));
   normal_render_pass_desc_scene->depthAttachment()->setClearDepth(1.0f);
   normal_render_pass_desc_scene->depthAttachment()->setLoadAction(
     MTL::LoadActionClear);
@@ -176,7 +176,7 @@ int main(int argc, char** argv)
               frame_data->view_projection
               * instance_data[instance_id].model
               * float4(vertices->pos_col[vertex_id].position.xy, 0.0, 1.0);
-            out.color = vertices->pos_col[vertex_id].color;
+            out.color = instance_data[instance_id].color;
             return out;
         }
 
@@ -249,10 +249,9 @@ int main(int argc, char** argv)
 
         float linearize_depth(
           texture_rasterizer_data_t in [[stage_in]],
-          metal::texture2d<float> texture [[texture(0)]])
+          metal::texture2d<float> texture [[texture(0)]],
+          const float near, const float far)
         {
-            float near = 0.01;
-            float far  = 100.0;
             metal::sampler simple_sampler;
             float depth = texture.sample(simple_sampler, in.texcoord).x;
             // inverse of perspective projection matrix transformation
@@ -261,10 +260,13 @@ int main(int argc, char** argv)
 
         fragment float4 fragment_shader_depth(
           texture_rasterizer_data_t in [[stage_in]],
+          constant frame_data_t* frame_data [[buffer(1)]],
           metal::texture2d<float> texture [[texture(0)]]) {
-          float c = linearize_depth(in, texture);
-          float3 range = float3(c - 0.01) / (100.0 - 0.01); // convert to [0,1]
-          return float4(range, 1.0); // 0.01 is near, 100.0 is far
+          const float near = frame_data->near;
+          const float far  = frame_data->far;
+          float c = linearize_depth(in, texture, near, far);
+          float3 range = float3(c - near) / (far - near); // convert to [0,1]
+          return float4(range, 1.0);
         }
   )";
 
@@ -485,12 +487,18 @@ int main(int argc, char** argv)
         simd::float4{vp[4], vp[5], vp[6], vp[7]},
         simd::float4{vp[8], vp[9], vp[10], vp[11]},
         simd::float4{vp[12], vp[13], vp[14], vp[15]}};
+      frame_data->near = near;
+      frame_data->far = far;
       frame_data_buffer->didModifyRange(
         NS::Range::Make(0, sizeof(frame_data_t)));
 
       const as::vec3 positions[InstanceCount] = {
         as::vec3{-0.25f, 0.25f, 1.0f}, as::vec3{0.25f, -0.25f, 3.0f},
         as::vec3{-0.25f, 5.5f, 20.0f}, as::vec3{-30.0f, 0.0f, 80.0f}};
+
+      const as::vec4 colors[InstanceCount] = {
+        as::vec4(1.0f, 0.5f, 0.2f, 1.0f), as::vec4(1.0f, 0.0f, 0.0f, 1.0f),
+        as::vec4(0.1f, 0.2f, 0.6f, 1.0f), as::vec4(0.1f, 0.8f, 0.2f, 1.0f)};
 
       auto* instance_data =
         static_cast<instance_data_t*>(instance_data_buffer->contents());
@@ -500,6 +508,8 @@ int main(int argc, char** argv)
           simd::float4{0.0f, 1.0f, 0.0f, 0.0f},
           simd::float4{0.0f, 0.0f, 1.0f, 0.0f},
           simd::float4{positions[i].x, positions[i].y, positions[i].z, 1.0f}};
+        instance_data[i].color =
+          simd::float4{colors[i].x, colors[i].y, colors[i].z, colors[i].w};
       }
 
       instance_data_buffer->didModifyRange(
@@ -564,6 +574,9 @@ int main(int argc, char** argv)
             : render_pipeline_state_screen_depth);
         render_command_encoder->setVertexBytes(
           &quad_vertices, sizeof(quad_vertices), 0);
+        if (g_render_mode == render_mode_e::depth) {
+          render_command_encoder->setFragmentBuffer(frame_data_buffer, 0, 1);
+        }
         render_command_encoder->setFragmentTexture(
           g_render_mode == render_mode_e::color ? render_target_texture
                                                 : depth_texture,

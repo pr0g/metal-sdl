@@ -19,11 +19,14 @@ struct vertex_pos_tex_t
 struct frame_data_t
 {
   simd::float4x4 view_projection;
+  float near;
+  float far;
 };
 
 struct instance_data_t
 {
   simd::float4x4 model;
+  simd::float4 color;
 };
 
 #endif // METAL_VERTEX_H
