@@ -492,9 +492,26 @@ int main(int argc, char** argv)
       frame_data_buffer->didModifyRange(
         NS::Range::Make(0, sizeof(frame_data_t)));
 
-      const as::vec3 positions[InstanceCount] = {
-        as::vec3{-0.25f, 0.25f, 1.0f}, as::vec3{0.25f, -0.25f, 3.0f},
-        as::vec3{-0.25f, 5.5f, 20.0f}, as::vec3{-30.0f, 0.0f, 80.0f}};
+      const as::affine near_positions[InstanceCount] = {
+        as::affine_from_vec3(as::vec3{-0.25f, 0.25f, 1.0f}),
+        as::affine_from_vec3(as::vec3{0.25f, -0.25f, 3.0f}),
+        as::affine_from_vec3(as::vec3{-0.25f, 5.5f, 20.0f}),
+        as::affine_from_vec3(as::vec3{-30.0f, 0.0f, 80.0f})};
+      const as::affine fighting_positions[InstanceCount] = {
+        as::affine_from_mat3_vec3(
+          as::mat3_scale(100.0f, 100.0f, 1.0f),
+          as::vec3{-10.0f, 25.0f, 500.02f}),
+        as::affine_from_mat3_vec3(
+          as::mat3_scale(100.0f, 100.0f, 1.0f),
+          as::vec3{10.0f, -25.0f, 499.98f}),
+        as::affine_from_mat3_vec3(
+          as::mat3_scale(100.0f, 100.0f, 1.0f), as::vec3{-10.0f, 0.0f, 500.0f}),
+        as::affine_from_mat3_vec3(
+          as::mat3_scale(100.0f, 100.0f, 1.0f),
+          as::vec3{10.0f, 0.0f, 500.01f})};
+      const as::affine* transforms = g_layout_mode == layout_mode_e::near
+                                     ? near_positions
+                                     : fighting_positions;
 
       const as::vec4 colors[InstanceCount] = {
         as::vec4(1.0f, 0.5f, 0.2f, 1.0f), as::vec4(1.0f, 0.0f, 0.0f, 1.0f),
@@ -504,10 +521,18 @@ int main(int argc, char** argv)
         static_cast<instance_data_t*>(instance_data_buffer->contents());
       for (int64_t i = 0; i < InstanceCount; ++i) {
         instance_data[i].model = simd::float4x4{
-          simd::float4{1.0f, 0.0f, 0.0f, 0.0f},
-          simd::float4{0.0f, 1.0f, 0.0f, 0.0f},
-          simd::float4{0.0f, 0.0f, 1.0f, 0.0f},
-          simd::float4{positions[i].x, positions[i].y, positions[i].z, 1.0f}};
+          simd::float4{
+            transforms[i].rotation[0], transforms[i].rotation[1],
+            transforms[i].rotation[2], 0.0f},
+          simd::float4{
+            transforms[i].rotation[3], transforms[i].rotation[4],
+            transforms[i].rotation[5], 0.0f},
+          simd::float4{
+            transforms[i].rotation[6], transforms[i].rotation[7],
+            transforms[i].rotation[8], 0.0f},
+          simd::float4{
+            transforms[i].translation.x, transforms[i].translation.y,
+            transforms[i].translation.z, 1.0f}};
         instance_data[i].color =
           simd::float4{colors[i].x, colors[i].y, colors[i].z, colors[i].w};
       }
@@ -628,6 +653,15 @@ int main(int argc, char** argv)
             "Render Mode", &render_mode_index, render_mode_names,
             std::size(render_mode_names));
           g_render_mode = static_cast<render_mode_e>(render_mode_index);
+        }
+
+        {
+          int layout_mode_index = static_cast<int>(g_layout_mode);
+          const char* layout_mode_names[] = {"Near", "Fighting"};
+          ImGui::Combo(
+            "Layout Mode", &layout_mode_index, layout_mode_names,
+            std::size(layout_mode_names));
+          g_layout_mode = static_cast<layout_mode_e>(layout_mode_index);
         }
 
         ImGui::SliderFloat("Near Plane", &near, 0.01f, 49.9f);
