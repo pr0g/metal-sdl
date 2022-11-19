@@ -162,7 +162,7 @@ int main(int argc, char** argv)
         };
 
         struct VertexData {
-            device vertex_pos_col_t* pos_col [[id(0)]];
+            device vertex_pos_t* pos_col [[id(0)]];
         };
 
         vertex rasterizer_data_t vertex_shader(
@@ -324,11 +324,11 @@ int main(int argc, char** argv)
   library_screen->release();
 
   const uint16_t indices[] = {0, 1, 2, 0, 2, 3};
-  const vertex_pos_col_t vertices[] = {
-    {{-0.5f, -0.5f, 0.0f}, {1.0f, 0.0f, 0.0f, 1.0f}},
-    {{0.5f, -0.5f, 0.0f}, {0.0f, 1.0f, 0.0f, 1.0f}},
-    {{0.5f, 0.5f, 0.0f}, {0.0f, 0.0f, 1.0f, 1.0f}},
-    {{-0.5f, 0.5f, 0.0f}, {1.0f, 1.0f, 0.0f, 1.0f}}};
+  const vertex_pos_t vertices[] = {
+    {{-0.5f, -0.5f, 0.0f}},
+    {{0.5f, -0.5f, 0.0f}},
+    {{0.5f, 0.5f, 0.0f}},
+    {{-0.5f, 0.5f, 0.0f}}};
 
   MTL::Buffer* vertex_buffer =
     device->newBuffer(sizeof(vertices), MTL::ResourceStorageModeManaged);

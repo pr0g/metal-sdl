@@ -1,13 +1,12 @@
 #ifndef METAL_VERTEX_H
 #define METAL_VERTEX_H
 
-#include <simd/vector_types.h>
 #include <simd/matrix_types.h>
+#include <simd/vector_types.h>
 
-struct vertex_pos_col_t
+struct vertex_pos_t
 {
   simd::float3 position;
-  simd::float4 color;
 };
 
 struct vertex_pos_tex_t
