@@ -474,16 +474,6 @@ int main(int argc, char** argv)
           MTL::IndexType::IndexTypeUInt16, index_buffer, NS::UInteger(0),
           InstanceCount);
 
-        ImGui_ImplMetal_NewFrame(render_pass_desc_scene);
-        ImGui_ImplSDL2_NewFrame();
-        ImGui::NewFrame();
-
-        ImGui::ShowDemoWindow();
-
-        ImGui::Render();
-        ImGui_ImplMetal_RenderDrawData(
-          ImGui::GetDrawData(), command_buffer, render_command_encoder);
-
         render_command_encoder->endEncoding();
       }
 
@@ -522,6 +512,41 @@ int main(int argc, char** argv)
         render_command_encoder->drawPrimitives(
           MTL::PrimitiveTypeTriangle, NS::UInteger(0), NS::UInteger(6));
         render_command_encoder->endEncoding();
+      }
+
+      MTL::RenderPassDescriptor* ui_render_pass_desc =
+        MTL::RenderPassDescriptor::alloc()->init();
+      ui_render_pass_desc->colorAttachments()->object(0)->setLoadAction(
+        MTL::LoadActionLoad);
+      ui_render_pass_desc->colorAttachments()->object(0)->setStoreAction(
+        MTL::StoreActionStore);
+      ui_render_pass_desc->colorAttachments()->object(0)->setTexture(
+        current_drawable->texture());
+
+      if (
+        MTL::RenderCommandEncoder* ui_render_command_encoder =
+          command_buffer->renderCommandEncoder(ui_render_pass_desc)) {
+        ui_render_command_encoder->setLabel(
+          NS::String::string("UI Pass", UTF8StringEncoding));
+        ui_render_command_encoder->setRenderPipelineState(
+          render_pipeline_state_scene);
+        ui_render_command_encoder->setCullMode(MTL::CullModeBack);
+        ui_render_command_encoder->setFrontFacingWinding(
+          MTL::Winding::WindingCounterClockwise);
+        ui_render_command_encoder->setViewport(
+          MTL::Viewport{0, 0, width, height, 0.0, 1.0});
+
+        ImGui_ImplMetal_NewFrame(ui_render_pass_desc);
+        ImGui_ImplSDL2_NewFrame();
+        ImGui::NewFrame();
+
+        ImGui::ShowDemoWindow();
+
+        ImGui::Render();
+        ImGui_ImplMetal_RenderDrawData(
+          ImGui::GetDrawData(), command_buffer, ui_render_command_encoder);
+
+        ui_render_command_encoder->endEncoding();
       }
 
       command_buffer->presentDrawable(current_drawable);
