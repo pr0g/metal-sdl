@@ -19,23 +19,44 @@
 #include <chrono>
 #include <iostream>
 
+// standard linearization alternative
+// return near * far / ((depth * (near - far)) + far);
+// reverse linearization
+// return near * far / ((depth * (far - near)) + near);
+
+using fp_seconds = std::chrono::duration<float, std::chrono::seconds::period>;
+
+enum class render_mode_e
+{
+  color,
+  depth
+};
+
+enum class depth_mode_e
+{
+  normal,
+  reverse
+};
+
+enum class layout_mode_e
+{
+  near,
+  fighting
+};
+
+depth_mode_e g_depth_mode = depth_mode_e::normal;
+render_mode_e g_render_mode = render_mode_e::color;
+layout_mode_e g_layout_mode = layout_mode_e::near;
+
 namespace asc
 {
+
 Handedness handedness()
 {
   return Handedness::Left;
 }
+
 } // namespace asc
-
-enum class render_mode_e
-{
-  normal,
-  depth
-};
-
-render_mode_e g_render_mode = render_mode_e::normal;
-
-using fp_seconds = std::chrono::duration<float, std::chrono::seconds::period>;
 
 int main(int argc, char** argv)
 {
@@ -97,22 +118,39 @@ int main(int argc, char** argv)
   MTL::Texture* depth_texture = device->newTexture(depth_texture_desc);
   depth_texture_desc->release();
 
-  MTL::RenderPassDescriptor* render_pass_desc_scene =
+  MTL::RenderPassDescriptor* reverse_render_pass_desc_scene =
     MTL::RenderPassDescriptor::alloc()->init();
-  render_pass_desc_scene->colorAttachments()->object(0)->setTexture(
+  reverse_render_pass_desc_scene->colorAttachments()->object(0)->setTexture(
     render_target_texture);
-  render_pass_desc_scene->colorAttachments()->object(0)->setLoadAction(
+  reverse_render_pass_desc_scene->colorAttachments()->object(0)->setLoadAction(
     MTL::LoadActionClear);
-  render_pass_desc_scene->colorAttachments()->object(0)->setStoreAction(
+  reverse_render_pass_desc_scene->colorAttachments()->object(0)->setStoreAction(
     MTL::StoreActionStore);
-  render_pass_desc_scene->colorAttachments()->object(0)->setClearColor(
+  reverse_render_pass_desc_scene->colorAttachments()->object(0)->setClearColor(
     MTL::ClearColor::Make(0.3922, 0.5843, 0.9294, 1.0));
-  render_pass_desc_scene->depthAttachment()->setClearDepth(0.0f);
-  render_pass_desc_scene->depthAttachment()->setLoadAction(
+  reverse_render_pass_desc_scene->depthAttachment()->setClearDepth(0.0f);
+  reverse_render_pass_desc_scene->depthAttachment()->setLoadAction(
     MTL::LoadActionClear);
-  render_pass_desc_scene->depthAttachment()->setStoreAction(
+  reverse_render_pass_desc_scene->depthAttachment()->setStoreAction(
     MTL::StoreActionStore);
-  render_pass_desc_scene->depthAttachment()->setTexture(depth_texture);
+  reverse_render_pass_desc_scene->depthAttachment()->setTexture(depth_texture);
+
+  MTL::RenderPassDescriptor* normal_render_pass_desc_scene =
+    MTL::RenderPassDescriptor::alloc()->init();
+  normal_render_pass_desc_scene->colorAttachments()->object(0)->setTexture(
+    render_target_texture);
+  normal_render_pass_desc_scene->colorAttachments()->object(0)->setLoadAction(
+    MTL::LoadActionClear);
+  normal_render_pass_desc_scene->colorAttachments()->object(0)->setStoreAction(
+    MTL::StoreActionStore);
+  normal_render_pass_desc_scene->colorAttachments()->object(0)->setClearColor(
+    MTL::ClearColor::Make(0.3922, 0.5843, 0.9294, 1.0));
+  normal_render_pass_desc_scene->depthAttachment()->setClearDepth(1.0f);
+  normal_render_pass_desc_scene->depthAttachment()->setLoadAction(
+    MTL::LoadActionClear);
+  normal_render_pass_desc_scene->depthAttachment()->setStoreAction(
+    MTL::StoreActionStore);
+  normal_render_pass_desc_scene->depthAttachment()->setTexture(depth_texture);
 
   const char* shader_src_scene = R"(
         #include <metal_stdlib>
@@ -218,23 +256,15 @@ int main(int argc, char** argv)
             metal::sampler simple_sampler;
             float depth = texture.sample(simple_sampler, in.texcoord).x;
             // inverse of perspective projection matrix transformation
-            // standard linearization
-            return near * far / (far - depth * (far - near));
-            // standard linearization alternative
-            // return near * far / ((depth * (near - far)) + far);
-            // reverse linearization
-            // return near * far / ((depth * (far - near)) + near);
+            return (far * near) / ((depth * (near - far)) + far);
         }
 
         fragment float4 fragment_shader_depth(
           texture_rasterizer_data_t in [[stage_in]],
           metal::texture2d<float> texture [[texture(0)]]) {
-          // increase to help visualization (increments of orders of magnitude)
-          // (required for reverse z)
-          const float scale_factor = 1000000.0f; // e.g. 1000000.0
           float c = linearize_depth(in, texture);
-          float3 range = float3(c - 0.01) / (100.0 - 0.01);
-          return float4(range * scale_factor, 1.0); // 0.01 is near, 100.0 is far
+          float3 range = float3(c - 0.01) / (100.0 - 0.01); // convert to [0,1]
+          return float4(range, 1.0); // 0.01 is near, 100.0 is far
         }
   )";
 
@@ -339,22 +369,25 @@ int main(int argc, char** argv)
       device->newBuffer(sizeof(frame_data_t), MTL::ResourceStorageModeManaged);
   }
 
-  MTL::DepthStencilDescriptor* depth_stencil_desc =
+  MTL::DepthStencilDescriptor* reverse_depth_stencil_desc =
     MTL::DepthStencilDescriptor::alloc()->init();
-  depth_stencil_desc->setDepthCompareFunction(
+  reverse_depth_stencil_desc->setDepthCompareFunction(
     MTL::CompareFunction::CompareFunctionGreater);
-  depth_stencil_desc->setDepthWriteEnabled(true);
+  reverse_depth_stencil_desc->setDepthWriteEnabled(true);
+  MTL::DepthStencilState* reverse_depth_stencil_state =
+    device->newDepthStencilState(reverse_depth_stencil_desc);
+  reverse_depth_stencil_desc->release();
 
-  MTL::DepthStencilState* depth_stencil_state =
-    device->newDepthStencilState(depth_stencil_desc);
-
-  depth_stencil_desc->release();
+  MTL::DepthStencilDescriptor* normal_depth_stencil_desc =
+    MTL::DepthStencilDescriptor::alloc()->init();
+  normal_depth_stencil_desc->setDepthCompareFunction(
+    MTL::CompareFunction::CompareFunctionLess);
+  normal_depth_stencil_desc->setDepthWriteEnabled(true);
+  MTL::DepthStencilState* normal_depth_stencil_state =
+    device->newDepthStencilState(normal_depth_stencil_desc);
+  normal_depth_stencil_desc->release();
 
   dispatch_semaphore_t semaphore = dispatch_semaphore_create(MaxFramesInFlight);
-
-  const as::mat4 perspective_projection =
-    as::reverse_z(as::perspective_metal_lh(
-      as::radians(60.0f), float(width) / float(height), 0.01f, 100.0f));
 
   asc::Camera camera;
   camera.pivot = as::vec3(0.0f, 0.0f, -2.0f);
@@ -367,6 +400,9 @@ int main(int argc, char** argv)
   camera_system.cameras_.addCamera(&translate_camera);
   camera_system.cameras_.addCamera(&rotate_camera);
 
+  float near = 0.01f;
+  float far = 100.0f;
+
   ImGui::CreateContext();
 
   ImGui_ImplSDL2_InitForMetal(window);
@@ -374,6 +410,7 @@ int main(int argc, char** argv)
 
   MTL::CommandQueue* command_queue = device->newCommandQueue();
 
+  layout_mode_e prev_layout_mode = g_layout_mode;
   auto prev = std::chrono::system_clock::now();
   for (bool quit = false; !quit;) {
     for (SDL_Event current_event; SDL_PollEvent(&current_event) != 0;) {
@@ -383,16 +420,6 @@ int main(int argc, char** argv)
         break;
       }
       camera_system.handleEvents(asci_sdl::sdlToInput(&current_event));
-      if (current_event.type == SDL_KEYDOWN) {
-        const auto* keyboard_event = (SDL_KeyboardEvent*)&current_event;
-        if (keyboard_event->keysym.scancode == SDL_SCANCODE_R) {
-          if (g_render_mode == render_mode_e::depth) {
-            g_render_mode = render_mode_e::normal;
-          } else {
-            g_render_mode = render_mode_e::depth;
-          }
-        }
-      }
     }
 
     auto now = std::chrono::system_clock::now();
@@ -421,10 +448,37 @@ int main(int argc, char** argv)
         dispatch_semaphore_signal(semaphore);
       });
 
+      const as::mat4 perspective_projection = as::perspective_metal_lh(
+        as::radians(60.0f), float(width) / float(height), near, far);
+      const as::mat4 reverse_z_perspective_projection =
+        as::reverse_z(perspective_projection);
+
+      if (g_layout_mode != prev_layout_mode) {
+        if (g_layout_mode == layout_mode_e::fighting) {
+          near = 0.01f;
+          far = 10000.0f;
+        } else if (g_layout_mode == layout_mode_e::near) {
+          near = 5.0f;
+          far = 100.0f;
+        }
+        prev_layout_mode = g_layout_mode;
+      }
+
       auto* frame_data =
         static_cast<frame_data_t*>(frame_data_buffer->contents());
-      const as::mat4 view = as::mat4_from_affine(camera.view());
-      const as::mat4 view_projection = perspective_projection * view;
+
+      const as::mat4 view_projection = [camera, perspective_projection,
+                                        reverse_z_perspective_projection] {
+        const as::mat4 view = as::mat4_from_affine(camera.view());
+        if (g_depth_mode == depth_mode_e::normal) {
+          return as::mat_mul(view, perspective_projection);
+        }
+        if (g_depth_mode == depth_mode_e::reverse) {
+          return as::mat_mul(view, reverse_z_perspective_projection);
+        }
+        return as::mat4::identity();
+      }();
+
       const auto& vp = view_projection;
       frame_data->view_projection = simd::float4x4{
         simd::float4{vp[0], vp[1], vp[2], vp[3]},
@@ -453,12 +507,17 @@ int main(int argc, char** argv)
 
       if (
         MTL::RenderCommandEncoder* render_command_encoder =
-          command_buffer->renderCommandEncoder(render_pass_desc_scene)) {
+          command_buffer->renderCommandEncoder(
+            g_depth_mode == depth_mode_e::reverse
+              ? reverse_render_pass_desc_scene
+              : normal_render_pass_desc_scene)) {
         render_command_encoder->setLabel(
           NS::String::string("Scene Pass", UTF8StringEncoding));
         render_command_encoder->setRenderPipelineState(
           render_pipeline_state_scene);
-        render_command_encoder->setDepthStencilState(depth_stencil_state);
+        render_command_encoder->setDepthStencilState(
+          g_depth_mode == depth_mode_e::reverse ? reverse_depth_stencil_state
+                                                : normal_depth_stencil_state);
         render_command_encoder->setCullMode(MTL::CullModeBack);
         render_command_encoder->setFrontFacingWinding(
           MTL::Winding::WindingCounterClockwise);
@@ -500,14 +559,14 @@ int main(int argc, char** argv)
         render_command_encoder->setViewport(
           MTL::Viewport{0, 0, width, height, 0.0, 1.0});
         render_command_encoder->setRenderPipelineState(
-          g_render_mode == render_mode_e::normal
+          g_render_mode == render_mode_e::color
             ? render_pipeline_state_screen
             : render_pipeline_state_screen_depth);
         render_command_encoder->setVertexBytes(
           &quad_vertices, sizeof(quad_vertices), 0);
         render_command_encoder->setFragmentTexture(
-          g_render_mode == render_mode_e::normal ? render_target_texture
-                                                 : depth_texture,
+          g_render_mode == render_mode_e::color ? render_target_texture
+                                                : depth_texture,
           0);
         render_command_encoder->drawPrimitives(
           MTL::PrimitiveTypeTriangle, NS::UInteger(0), NS::UInteger(6));
@@ -540,7 +599,26 @@ int main(int argc, char** argv)
         ImGui_ImplSDL2_NewFrame();
         ImGui::NewFrame();
 
-        ImGui::ShowDemoWindow();
+        {
+          int depth_mode_index = static_cast<int>(g_depth_mode);
+          const char* depth_mode_names[] = {"Normal", "Reverse"};
+          ImGui::Combo(
+            "Depth Mode", &depth_mode_index, depth_mode_names,
+            std::size(depth_mode_names));
+          g_depth_mode = static_cast<depth_mode_e>(depth_mode_index);
+        }
+
+        {
+          int render_mode_index = static_cast<int>(g_render_mode);
+          const char* render_mode_names[] = {"Color", "Depth"};
+          ImGui::Combo(
+            "Render Mode", &render_mode_index, render_mode_names,
+            std::size(render_mode_names));
+          g_render_mode = static_cast<render_mode_e>(render_mode_index);
+        }
+
+        ImGui::SliderFloat("Near Plane", &near, 0.01f, 49.9f);
+        ImGui::SliderFloat("Far Plane", &far, 50.0f, 10000.0f);
 
         ImGui::Render();
         ImGui_ImplMetal_RenderDrawData(
@@ -560,13 +638,15 @@ int main(int argc, char** argv)
   ImGui_ImplSDL2_Shutdown();
   ImGui::DestroyContext();
 
-  render_pass_desc_scene->release();
+  reverse_render_pass_desc_scene->release();
+  normal_render_pass_desc_scene->release();
   render_target_texture->release();
   depth_texture->release();
   arg_buffer->release();
   vertex_buffer->release();
   index_buffer->release();
-  depth_stencil_state->release();
+  reverse_depth_stencil_state->release();
+  normal_depth_stencil_state->release();
   for (int i = 0; i < MaxFramesInFlight; ++i) {
     frame_data_buffers[i]->release();
     instance_data_buffers[i]->release();
