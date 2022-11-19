@@ -392,7 +392,7 @@ int main(int argc, char** argv)
   dispatch_semaphore_t semaphore = dispatch_semaphore_create(MaxFramesInFlight);
 
   asc::Camera camera;
-  camera.pivot = as::vec3(0.0f, 0.0f, -2.0f);
+  camera.pivot = as::vec3(0.0f, 0.0f, -4.0f);
   asc::Camera target_camera = camera;
 
   asci::CameraSystem camera_system;
@@ -402,7 +402,7 @@ int main(int argc, char** argv)
   camera_system.cameras_.addCamera(&translate_camera);
   camera_system.cameras_.addCamera(&rotate_camera);
 
-  float near = 0.01f;
+  float near = 5.0f;
   float far = 100.0f;
 
   ImGui::CreateContext();
