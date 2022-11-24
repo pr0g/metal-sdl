@@ -220,6 +220,29 @@ int main(int argc, char** argv)
   }
 
   pipeline_descriptor_scene->release();
+
+  MTL::RenderPipelineDescriptor* pipeline_descriptor_ui =
+    MTL::RenderPipelineDescriptor::alloc()->init();
+  pipeline_descriptor_ui->setLabel(
+    NS::String::string("scene", UTF8StringEncoding));
+  pipeline_descriptor_ui->setVertexFunction(vert_fn_scene);
+  pipeline_descriptor_ui->setFragmentFunction(frag_fn_scene);
+  pipeline_descriptor_ui->colorAttachments()->object(0)->setPixelFormat(
+    MTL::PixelFormat::PixelFormatBGRA8Unorm);
+  pipeline_descriptor_ui->setDepthAttachmentPixelFormat(
+    MTL::PixelFormat::PixelFormatInvalid);
+  pipeline_descriptor_ui->vertexBuffers()->object(0)->setMutability(
+    MTL::MutabilityImmutable);
+
+  MTL::RenderPipelineState* render_pipeline_state_ui =
+    device->newRenderPipelineState(pipeline_descriptor_ui, &error);
+  if (!render_pipeline_state_ui) {
+    std::cout << error->localizedDescription()->utf8String() << '\n';
+    return 1;
+  }
+
+  pipeline_descriptor_ui->release();
+
   library_scene->release();
 
   const char* shader_src_screen = R"(
@@ -611,29 +634,29 @@ int main(int argc, char** argv)
         render_command_encoder->endEncoding();
       }
 
-      MTL::RenderPassDescriptor* ui_render_pass_desc =
+      MTL::RenderPassDescriptor* render_pass_desc_ui =
         MTL::RenderPassDescriptor::alloc()->init();
-      ui_render_pass_desc->colorAttachments()->object(0)->setLoadAction(
+      render_pass_desc_ui->colorAttachments()->object(0)->setLoadAction(
         MTL::LoadActionLoad);
-      ui_render_pass_desc->colorAttachments()->object(0)->setStoreAction(
+      render_pass_desc_ui->colorAttachments()->object(0)->setStoreAction(
         MTL::StoreActionStore);
-      ui_render_pass_desc->colorAttachments()->object(0)->setTexture(
+      render_pass_desc_ui->colorAttachments()->object(0)->setTexture(
         current_drawable->texture());
 
       if (
-        MTL::RenderCommandEncoder* ui_render_command_encoder =
-          command_buffer->renderCommandEncoder(ui_render_pass_desc)) {
-        ui_render_command_encoder->setLabel(
+        MTL::RenderCommandEncoder* render_command_encoder =
+          command_buffer->renderCommandEncoder(render_pass_desc_ui)) {
+        render_command_encoder->setLabel(
           NS::String::string("UI Pass", UTF8StringEncoding));
-        ui_render_command_encoder->setRenderPipelineState(
-          render_pipeline_state_scene);
-        ui_render_command_encoder->setCullMode(MTL::CullModeBack);
-        ui_render_command_encoder->setFrontFacingWinding(
+        render_command_encoder->setRenderPipelineState(
+          render_pipeline_state_ui);
+        render_command_encoder->setCullMode(MTL::CullModeBack);
+        render_command_encoder->setFrontFacingWinding(
           MTL::Winding::WindingCounterClockwise);
-        ui_render_command_encoder->setViewport(
+        render_command_encoder->setViewport(
           MTL::Viewport{0, 0, width, height, 0.0, 1.0});
 
-        ImGui_ImplMetal_NewFrame(ui_render_pass_desc);
+        ImGui_ImplMetal_NewFrame(render_pass_desc_ui);
         ImGui_ImplSDL2_NewFrame();
         ImGui::NewFrame();
 
@@ -669,9 +692,9 @@ int main(int argc, char** argv)
 
         ImGui::Render();
         ImGui_ImplMetal_RenderDrawData(
-          ImGui::GetDrawData(), command_buffer, ui_render_command_encoder);
+          ImGui::GetDrawData(), command_buffer, render_command_encoder);
 
-        ui_render_command_encoder->endEncoding();
+        render_command_encoder->endEncoding();
       }
 
       command_buffer->presentDrawable(current_drawable);

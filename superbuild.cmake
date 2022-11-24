@@ -1,3 +1,5 @@
+cmake_policy(SET CMP0114 NEW)
+
 ExternalProject_Add(
   ${PROJECT_NAME}-superbuild
   DEPENDS SDL2
